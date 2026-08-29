@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-sensor-layout">
+  <link rel="stylesheet" href="styles.css?v=20260829-mode-ack">
 </head>
 <body>
   <main class="app-shell">
@@ -31,7 +31,7 @@
     <nav class="tabs" aria-label="功能导航">
       <button class="tab-button active" data-tab="sensor" type="button">巡线</button>
       <button class="tab-button" data-tab="remote" type="button">遥控</button>
-      <button class="tab-button" data-tab="tuning" type="button">调参</button>
+      <button class="tab-button" data-tab="tuning" type="button">PID 参数</button>
       <button class="tab-button" data-tab="logs" type="button">日志</button>
     </nav>
 
@@ -44,7 +44,7 @@
           <div><small>避障</small><strong id="avoidanceValue">关闭</strong></div>
         </div>
         <div class="button-grid two-buttons track-run-buttons">
-          <button class="button primary sensor-only" id="trackStartButton" data-command="TRACK START" type="button" disabled>▶ 启动巡线</button>
+          <button class="button primary sensor-only" id="trackStartButton" type="button" disabled>▶ 启动巡线</button>
           <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束巡线</button>
         </div>
         <div class="gear-row">
@@ -157,27 +157,28 @@
 
     <section class="tab-panel" id="tuningTab" data-panel="tuning" hidden>
       <section class="card tuning-card">
-        <div class="section-title"><h2>巡线参数</h2><span id="tuningStatus">未读取</span></div>
-        <div class="button-grid tuning-actions"><button class="button ghost requires-connection" id="readParamsButton" type="button" disabled>读取</button><button class="button primary requires-connection" id="applyParamsButton" type="button" disabled>保存</button><button class="button ghost requires-connection" id="cancelParamsButton" type="button" disabled>取消</button></div>
+        <div class="section-title"><h2>巡线 PID 与速度</h2><span id="tuningStatus">打开后自动读取</span></div>
+        <p class="pid-guide"><strong>Kp</strong> 决定纠偏力度　<strong>Kd</strong> 抑制左右摆动　<strong>Ki</strong> 初期保持 0</p>
+        <div class="button-grid tuning-actions"><button class="button ghost requires-connection" id="readParamsButton" type="button" disabled>重新读取</button><button class="button primary requires-connection" id="applyParamsButton" type="button" disabled>保存到小车</button><button class="button ghost requires-connection" id="cancelParamsButton" type="button" disabled>恢复当前值</button></div>
 
         <details class="parameter-group" open>
           <summary>常用参数</summary>
           <div class="parameter-grid">
-            <label>低档基础 CPS<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>高档基础 CPS<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>巡线 Kp ×100<input class="param-input requires-connection" data-param="TRACK_KP_X100" type="number" min="0" max="5000" value="1000" disabled></label>
-            <label>巡线 Kd ×100<input class="param-input requires-connection" data-param="TRACK_KD_X100" type="number" min="0" max="5000" value="20" disabled></label>
-            <label>最大转向输出 CPS<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
+            <label>低速基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>最高基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="10.00" disabled></label>
+            <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.20" disabled></label>
+            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
             <label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
             <label>转弯/十字阈值 %<input class="param-input requires-connection" data-param="TRACK_BRANCH_PCT" type="number" min="0" max="100" value="60" disabled></label>
           </div>
-          <p class="group-hint">先用低档调稳 Kp/Kd，再逐步提高高档基础速度；Ki 默认关闭。</p>
+          <p class="group-hint">先在低速下调 Kp/Kd：纠偏不够再加 Kp，左右摆动明显再加 Kd；稳定后才提高速度。</p>
         </details>
 
         <details class="parameter-group">
           <summary>不常调整</summary>
           <div class="parameter-grid">
-            <label>巡线 Ki ×1000<input class="param-input requires-connection" data-param="TRACK_KI_X1000" type="number" min="0" max="5000" value="0" disabled></label>
+            <label>Ki 长期偏差修正<input class="param-input requires-connection" data-param="TRACK_KI_X1000" data-scale="1000" type="number" min="0" max="5" step="0.001" value="0" disabled></label>
             <label>丢线找回时间 ms<input class="param-input requires-connection" data-param="TRACK_LOST_MS" type="number" min="0" max="2000" value="300" disabled></label>
             <label>转向反向<select class="param-input requires-connection" data-param="TRACK_REVERSE" disabled><option value="0">否</option><option value="1">是</option></select></label>
           </div>
@@ -208,6 +209,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-sensor-layout"></script>
+  <script src="app.js?v=20260829-mode-ack"></script>
 </body>
 </html>

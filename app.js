@@ -83,6 +83,8 @@ let joystickLastCommand = "";
 let calibrationDirection = null;
 let calibrationSuggestion = null;
 let linePollTimer = null;
+let pendingModeAck = null;
+let resumePollingAfterParams = false;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -182,13 +184,45 @@ function selectTab(name) {
   if (name === "logs") updateLogProfile();
 }
 
-async function activateMode(mode) {
+function beginModeAck(mode) {
+  if (pendingModeAck) {
+    clearTimeout(pendingModeAck.timer);
+    pendingModeAck.resolve(false);
+  }
+  let resolveAck;
+  const promise = new Promise((resolve) => { resolveAck = resolve; });
+  const timer = setTimeout(() => {
+    if (pendingModeAck?.mode !== mode) return;
+    pendingModeAck = null;
+    resolveAck(false);
+  }, 2000);
+  pendingModeAck = { mode, promise, resolve: resolveAck, timer };
+  return promise;
+}
+
+function resolveModeAck(mode, success = true) {
+  if (!pendingModeAck || pendingModeAck.mode !== mode) return;
+  const request = pendingModeAck;
+  pendingModeAck = null;
+  clearTimeout(request.timer);
+  request.resolve(success);
+}
+
+async function activateMode(mode, force = false) {
   if (!state.connected || (mode !== "sensor" && mode !== "remote")) return false;
-  if (state.mode === mode) return true;
+  if (state.mode === mode && !force) return true;
+  if (pendingModeAck?.mode === mode) return pendingModeAck.promise;
+  const acknowledgement = beginModeAck(mode);
   const command = mode === "sensor" ? "MODE SENSOR" : "MODE REMOTE";
-  if (!(await sendCommand(command))) return false;
-  setMode(mode);
-  if (mode === "sensor") await sendCommand("LINE", true);
+  if (!(await sendCommand(command))) {
+    resolveModeAck(mode, false);
+    return false;
+  }
+  if (!(await acknowledgement)) {
+    setMessage(`小车没有确认${mode === "sensor" ? "巡线" : "遥控"}模式，请重试`, true);
+    return false;
+  }
+  if (mode === "sensor" && !force) await sendCommand("LINE", true);
   return true;
 }
 
@@ -322,7 +356,7 @@ function startLinePolling() {
   if (!state.connected || state.mode !== "sensor") return;
   linePollTimer = setInterval(() => {
     if (state.connected && state.mode === "sensor") sendCommand("LINE", true);
-  }, 350);
+  }, 500);
 }
 
 function setMode(mode) {
@@ -338,6 +372,7 @@ function setMode(mode) {
     setTrackRunning(false);
     setAvoidance(false);
     setLineCalibrating(false);
+    resumePollingAfterParams = false;
   }
   updateAvailability();
   if (mode === "sensor") startLinePolling();
@@ -378,6 +413,7 @@ function setConnected(connected) {
   ui.connectButton.disabled = connected;
   updateConnectionControls();
   if (!connected) {
+    if (pendingModeAck) resolveModeAck(pendingModeAck.mode, false);
     stopLinePolling();
     state.mode = "standby";
     state.motion = "stop";
@@ -438,10 +474,12 @@ async function connectSerialPort(port) {
   setConnected(true);
   addLog("CONNECTED SPP");
   serialReadTask = readSerialPort(port);
-  await sendCommand("CHECK");
-  await activateMode("sensor");
   selectTab("sensor");
-  setMessage("连接成功：巡线待机，电机未启动");
+  if (await activateMode("sensor")) {
+    setMessage("连接成功：巡线待机，电机未启动");
+  } else {
+    setMessage("蓝牙已连接，但小车没有确认巡线模式，请点“巡线”重试", true);
+  }
 }
 
 async function connectSerial() {
@@ -576,9 +614,30 @@ function numberField(fields, ...keys) {
   return null;
 }
 
+function parameterScale(input) {
+  const scale = Number(input?.dataset.scale || 1);
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+function protocolParameterValue(input) {
+  if (!input) return NaN;
+  return Math.round(Number(input.value) * parameterScale(input));
+}
+
+function showParameterValue(input, value) {
+  const scale = parameterScale(input);
+  if (scale === 1) return String(value);
+  if (value === 0) return "0";
+  return (value / scale).toFixed(Math.round(Math.log10(scale)));
+}
+
 function processLine(line) {
   const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
-  if (modeMatch) setMode(modeMatch[1].toLowerCase());
+  if (modeMatch) {
+    const reportedMode = modeMatch[1].toLowerCase();
+    setMode(reportedMode);
+    resolveModeAck(reportedMode);
+  }
   if (/^OK STOPPED MODE\b/i.test(line)) {
     setMotion("stop");
     if (/SENSOR$/i.test(line)) setTrackRunning(false);
@@ -721,7 +780,10 @@ function processLine(line) {
     const key = param[2];
     const value = Number(param[3]);
     if (source !== "STAGED") knownParams[key] = value;
-    if (paramInputs.has(key)) paramInputs.get(key).value = param[3];
+    if (paramInputs.has(key)) {
+      const input = paramInputs.get(key);
+      input.value = showParameterValue(input, value);
+    }
     if (key === "TURN90_L_COUNT" || key === "TURN90_R_COUNT") updateTurn90Status();
     if (key === "LINE_CAL" && source !== "STAGED") setLineCalibrated(value === 1);
   }
@@ -730,6 +792,8 @@ function processLine(line) {
   if (/^PARAMS END$/i.test(line)) {
     paramsLoaded = true;
     ui.tuningStatus.textContent = "已读取";
+    if (resumePollingAfterParams && state.mode === "sensor") startLinePolling();
+    resumePollingAfterParams = false;
   }
   if (/^OK SAVED TO FLASH$/i.test(line)) ui.tuningStatus.textContent = "已保存";
   if (/^OK LINE CAL START$/i.test(line)) {
@@ -763,6 +827,10 @@ function processLine(line) {
   }
   else if (/^ERR TRACK NOT CALIBRATED$/i.test(line)) {
     setMessage("请先完成四路传感器范围标定", true);
+  }
+  else if (/^ERR MODE NOT SENSOR$/i.test(line)) {
+    setMode("standby");
+    setMessage("小车尚未进入巡线模式，请点“巡线”重试", true);
   }
   else if (/^ERR LINE CAL RANGE TOO SMALL$/i.test(line)) {
     /* 上面已经给出可操作的中文提示。 */
@@ -815,16 +883,27 @@ async function saveTurnCalibration() {
   calibrationSuggestion = null;
 }
 
+async function requestParameters() {
+  if (!state.connected) return false;
+  resumePollingAfterParams = state.mode === "sensor";
+  if (resumePollingAfterParams) stopLinePolling();
+  ui.tuningStatus.textContent = "读取中…";
+  if (await sendCommand("CHECK")) return true;
+  if (resumePollingAfterParams) startLinePolling();
+  resumePollingAfterParams = false;
+  return false;
+}
+
 function changedParameterEntries() {
   const entries = [];
   for (const [key, input] of paramInputs) {
     if (!input.reportValidity()) return null;
-    const value = Number(input.value);
+    const value = protocolParameterValue(input);
     if (!Number.isInteger(value)) return null;
     if (knownParams[key] !== value) entries.push({ key, value });
   }
 
-  const valueOf = (key) => Number(paramInputs.get(key)?.value);
+  const valueOf = (key) => protocolParameterValue(paramInputs.get(key));
   if (valueOf("TRACK_MIN_CPS") > valueOf("TRACK_BASE_CPS")) {
     setMessage("低档基础速度不能高于高档基础速度", true);
     return null;
@@ -947,6 +1026,7 @@ document.querySelectorAll(".tab-button").forEach((button) => button.addEventList
   const tab = button.dataset.tab;
   selectTab(tab);
   if (tab === "sensor" || tab === "remote") await activateMode(tab);
+  else if (tab === "tuning" && state.connected) await requestParameters();
 }));
 
 document.querySelectorAll("button[data-command]:not([data-mode])").forEach((button) => {
@@ -956,6 +1036,11 @@ document.querySelectorAll("button[data-command]:not([data-mode])").forEach((butt
     if (motions[button.dataset.command]) setMotion(motions[button.dataset.command]);
     if (button.dataset.command === "STOP") centerJoystick(false);
   });
+});
+
+ui.trackStartButton.addEventListener("click", async () => {
+  if (!(await activateMode("sensor", true))) return;
+  await sendCommand("TRACK START");
 });
 
 document.querySelectorAll(".gear-choice").forEach((button) => {
@@ -1039,19 +1124,22 @@ ui.copySensorButton.addEventListener("click", async () => {
   }
 });
 
-ui.readParamsButton.addEventListener("click", () => {
-  ui.tuningStatus.textContent = "读取中…";
-  sendCommand("CHECK");
-});
+ui.readParamsButton.addEventListener("click", requestParameters);
 ui.applyParamsButton.addEventListener("click", async () => {
-  if (!(await stageChangedParameters(false))) return;
+  const resumePolling = state.mode === "sensor";
+  if (resumePolling) stopLinePolling();
+  if (!(await stageChangedParameters(false))) {
+    if (resumePolling) startLinePolling();
+    return;
+  }
   await delay(180);
   if (await sendCommand("APPLY")) ui.tuningStatus.textContent = "保存中…";
+  if (resumePolling) startLinePolling();
 });
 ui.cancelParamsButton.addEventListener("click", async () => {
   if (!(await sendCommand("CANCEL"))) return;
   await delay(140);
-  await sendCommand("CHECK");
+  await requestParameters();
 });
 
 ui.sampleNowButton.addEventListener("click", sampleNow);
