@@ -1,2 +1,5 @@
 .preview-profile/
 .codex-*-profile*/
+android-app/.gradle/
+android-app/local.properties
+android-app/**/build/

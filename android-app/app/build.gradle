@@ -1,0 +1,29 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.epochhit.smartcar"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.epochhit.smartcar"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+    }
+}
+
+def webRoot = rootProject.projectDir.parentFile
+
+tasks.register("syncWebAssets", Sync) {
+    from(webRoot) {
+        include "index.html", "app.js", "styles.css"
+    }
+    into(layout.projectDirectory.dir("src/main/assets"))
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("syncWebAssets")
+}

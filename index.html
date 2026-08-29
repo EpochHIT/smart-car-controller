@@ -6,18 +6,27 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-57600">
+  <link rel="stylesheet" href="styles.css?v=20260830-android">
 </head>
 <body>
   <main class="app-shell">
-    <header class="topbar">
-      <div><span class="eyebrow">STM32 · 巡线优先</span><h1>智能车控制台</h1></div>
+    <header class="app-hero">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img"><path class="track-line" d="M24 3v11m0 20v11"/><path class="car-shell" d="M13 17.5c0-2.5 2-4.5 4.5-4.5h13c2.5 0 4.5 2 4.5 4.5v15c0 2.5-2 4.5-4.5 4.5h-13A4.5 4.5 0 0 1 13 32.5z"/><path class="car-window" d="m17 17 14 .1 2 8H15z"/><circle cx="17" cy="35" r="3"/><circle cx="31" cy="35" r="3"/></svg>
+        </span>
+        <div class="brand-copy">
+          <div class="eyebrow-row"><span class="eyebrow">SMART CAR LAB</span><span class="platform-badge" id="platformBadge">WEB APP</span></div>
+          <h1>巡线控制台</h1>
+          <p>传感采集 · PID 调参 · 蓝牙遥控</p>
+        </div>
+      </div>
       <div class="connection-state" id="connectionState"><span class="state-dot"></span><span id="connectionText">未连接</span></div>
     </header>
 
     <section class="card quick-panel">
       <div class="connect-row">
-        <div class="connection-label"><strong>JDY-31 / HC-05</strong><small>经典蓝牙 SPP · 57600 · 8N1</small></div>
+        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31 / HC-05</strong><small>SPP · 57600 · 8N1</small></div>
         <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>重连</button>
         <strong class="device-name" id="deviceName">--</strong>
@@ -227,6 +236,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-57600"></script>
+  <script src="app.js?v=20260830-android"></script>
 </body>
 </html>

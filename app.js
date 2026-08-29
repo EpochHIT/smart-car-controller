@@ -5,9 +5,11 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const EXPECTED_PROTOCOL_VERSION = 15;
 const BLUETOOTH_BAUD_RATE = 57600;
 const SERIAL_BUFFER_SIZE = 4096;
+const nativeBluetooth = window.AndroidBluetooth || null;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
+  platformBadge: $("platformBadge"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
   deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
@@ -103,6 +105,8 @@ let resumePollingAfterParams = false;
 let paramsRequestPending = false;
 let lastLineSequence = null;
 let sensorSessionStartedAt = Date.now();
+let nativeDeviceLabel = "";
+let nativeHasLastDevice = false;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -113,6 +117,27 @@ const paramInputs = new Map(
 function setMessage(text, isError = false) {
   ui.message.textContent = text;
   ui.message.classList.toggle("error", isError);
+}
+
+async function writeClipboardText(text) {
+  if (nativeBluetooth?.copyText) return nativeBluetooth.copyText(text);
+  await navigator.clipboard.writeText(text);
+  return true;
+}
+
+function downloadText(fileName, text) {
+  if (nativeBluetooth?.saveText) {
+    nativeBluetooth.saveText(fileName, text);
+    setMessage("请选择 CSV 保存位置");
+    return;
+  }
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function snapshot() {
@@ -348,7 +373,7 @@ async function copySensorSession() {
   if (sensorHistory.length === 0) return;
   const text = sensorSessionTable("\t");
   try {
-    await navigator.clipboard.writeText(text);
+    await writeClipboardText(text);
     setMessage(`已复制本组 ${sensorHistory.length} 条数据，可直接粘贴给我或放进表格`);
   } catch {
     setMessage("浏览器不能直接复制，请使用“导出 CSV”", true);
@@ -357,13 +382,8 @@ async function copySensorSession() {
 
 function exportSensorSession() {
   if (sensorHistory.length === 0) return;
-  const blob = new Blob(["\ufeff", sensorSessionTable(",")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `sensor-${ui.sensorScenario.value}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const fileName = `sensor-${ui.sensorScenario.value}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  downloadText(fileName, `\ufeff${sensorSessionTable(",")}`);
 }
 
 function selectTab(name) {
@@ -603,12 +623,13 @@ function updateAvailability() {
 }
 
 function lastDeviceLabel() {
+  if (nativeBluetooth) return nativeDeviceLabel || (nativeHasLastDevice ? "已记住上次蓝牙设备" : "--");
   return lastGrantedSerialPort ? "已记住上次授权的蓝牙设备" : "--";
 }
 
 function updateConnectionControls() {
   ui.connectButton.disabled = state.connected;
-  ui.disconnectButton.disabled = !state.connected && !lastGrantedSerialPort;
+  ui.disconnectButton.disabled = !state.connected && !(nativeBluetooth ? nativeHasLastDevice : lastGrantedSerialPort);
   ui.disconnectButton.textContent = state.connected ? "断开" : "重连";
   if (!state.connected) ui.deviceName.textContent = lastDeviceLabel();
 }
@@ -652,6 +673,44 @@ function receiveBytes(value) {
   receiveBuffer = lines.pop() || "";
   lines.map((line) => line.trim()).filter(Boolean).forEach(processLine);
 }
+
+window.onAndroidBluetoothData = (base64) => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  receiveBytes(bytes);
+};
+
+window.onAndroidBluetoothNotice = (message, isError = false) => setMessage(message, isError);
+
+window.onAndroidBluetoothState = async (info) => {
+  if (info.connected) {
+    nativeHasLastDevice = true;
+    nativeDeviceLabel = `${info.name || "SPP 蓝牙"}${info.mac ? ` · ${info.mac}` : ""}`;
+    intentionalDisconnect = false;
+    ui.deviceName.textContent = nativeDeviceLabel;
+    setConnected(true);
+    addLog(`CONNECTED APP SPP ${info.mac || ""}`.trim());
+    selectTab("sensor");
+    if (await activateMode("sensor")) setMessage("连接成功：巡线待机，电机未启动");
+    else setMessage("蓝牙已连接，但小车没有回应；请检查固件和 57600 配置", true);
+    return;
+  }
+
+  const planned = Boolean(info.planned) || intentionalDisconnect;
+  const wasConnected = state.connected;
+  intentionalDisconnect = planned;
+  nativeDeviceLabel = "";
+  if (wasConnected || planned) handleDisconnected();
+  else {
+    intentionalDisconnect = false;
+    setConnected(false);
+  }
+  if (info.message) {
+    setMessage(info.message, true);
+    addLog(info.message, "error");
+  }
+};
 
 async function readSerialPort(port) {
   const reader = port.readable.getReader();
@@ -698,6 +757,11 @@ async function connectSerialPort(port) {
 }
 
 async function connectSerial() {
+  if (nativeBluetooth) {
+    setMessage("请选择已配对的小车蓝牙，可按名称或 MAC 搜索");
+    nativeBluetooth.requestConnect();
+    return;
+  }
   if (!navigator.serial) {
     setMessage("此浏览器不支持网页串口；Android 请使用 Chrome 137 或更高版本", true);
     return;
@@ -727,6 +791,11 @@ function connectSelectedDevice() {
 }
 
 async function connectLastDevice() {
+  if (nativeBluetooth) {
+    setMessage("正在连接上次使用的小车蓝牙…");
+    nativeBluetooth.connectLast();
+    return;
+  }
   const device = lastGrantedSerialPort;
   if (!device) return;
   try {
@@ -742,6 +811,12 @@ async function connectLastDevice() {
 }
 
 async function loadGrantedDevices() {
+  if (nativeBluetooth) {
+    nativeHasLastDevice = Boolean(nativeBluetooth.hasLastDevice());
+    updateConnectionControls();
+    if (nativeHasLastDevice) setMessage("可快速重连上次设备，也可以重新选择");
+    return;
+  }
   if (navigator.serial?.getPorts) {
     try {
       const ports = await navigator.serial.getPorts();
@@ -758,6 +833,10 @@ async function disconnectCurrentDevice() {
   if (!state.connected) return;
   intentionalDisconnect = true;
   await sendCommand("STOP");
+  if (nativeBluetooth) {
+    nativeBluetooth.disconnect();
+    return;
+  }
   const port = serialPort;
   serialPort = null;
   try { await serialReader?.cancel(); } catch (_) { /* 已断开 */ }
@@ -795,9 +874,13 @@ async function writeCommand(command, quiet = false) {
     return false;
   }
   try {
-    const data = encoder.encode(`${command}\n`);
-    if (!serialWriter) throw new Error("蓝牙串口不可写");
-    await serialWriter.write(data);
+    if (nativeBluetooth) {
+      if (!nativeBluetooth.write(`${command}\n`)) throw new Error("原生蓝牙串口不可写");
+    } else {
+      const data = encoder.encode(`${command}\n`);
+      if (!serialWriter) throw new Error("蓝牙串口不可写");
+      await serialWriter.write(data);
+    }
     if (!quiet) {
       addLog(command, "tx");
       setMessage(`${command} 已发送`);
@@ -1324,13 +1407,8 @@ function exportCsv() {
   for (const record of records) {
     rows.push(columns.map((column) => csvCell(record[column])).join(","));
   }
-  const blob = new Blob(["\ufeff", rows.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `smart-car-${mode === "sensor" ? "track" : "remote"}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const fileName = `smart-car-${mode === "sensor" ? "track" : "remote"}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  downloadText(fileName, `\ufeff${rows.join("\n")}`);
 }
 
 ui.connectButton.addEventListener("click", connectSelectedDevice);
@@ -1434,7 +1512,7 @@ ui.copySensorButton.addEventListener("click", async () => {
     `；${state.lineCalibrated ? "标定相对值不完整" : "未标定"}`;
   const text = `左横 ${values[0]}，左竖 ${values[1]}，右竖 ${values[2]}，右横 ${values[3]}${percent}`;
   try {
-    await navigator.clipboard.writeText(text);
+    await writeClipboardText(text);
     setMessage("四路数据已复制，可以直接发给我");
   } catch {
     setMessage(text);
@@ -1498,6 +1576,10 @@ ui.clearLogButton.addEventListener("click", () => {
 });
 
 setConnected(false);
+if (nativeBluetooth) {
+  document.documentElement.classList.add("native-app");
+  ui.platformBadge.textContent = "ANDROID APP";
+}
 loadGrantedDevices();
 selectTab("sensor");
 drawJoystick(0, 0);
