@@ -16,11 +16,6 @@ const ui = {
   turn90Status: $("turn90Status"), calibrateLeftButton: $("calibrateLeftButton"),
   calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
   turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
-  driveSpeedSummary: $("driveSpeedSummary"), speedUp5Button: $("speedUp5Button"), speedUp10Button: $("speedUp10Button"),
-  leftCpsValue: $("leftCpsValue"), rightCpsValue: $("rightCpsValue"),
-  leftTargetValue: $("leftTargetValue"), rightTargetValue: $("rightTargetValue"),
-  leftMotorPwmValue: $("leftMotorPwmValue"), rightMotorPwmValue: $("rightMotorPwmValue"),
-  straightErrorValue: $("straightErrorValue"), straightTrimValue: $("straightTrimValue"),
   distanceValue: $("distanceValue"), routeValue: $("routeValue"), thresholdValue: $("thresholdValue"),
   servoValue: $("servoValue"), servoControlValue: $("servoControlValue"),
   leftDistanceValue: $("leftDistanceValue"), rightDistanceValue: $("rightDistanceValue"),
@@ -29,19 +24,24 @@ const ui = {
   lineErrorValue: $("lineErrorValue"), trackStateValue: $("trackStateValue"),
   trackRunValue: $("trackRunValue"), avoidanceValue: $("avoidanceValue"),
   avoidanceStatus: $("avoidanceStatus"), trackStartButton: $("trackStartButton"),
-  trackStopButton: $("trackStopButton"),
+  trackStopButton: $("trackStopButton"), trackPeakValue: $("trackPeakValue"),
+  trackEndValue: $("trackEndValue"), trackPValue: $("trackPValue"), trackIValue: $("trackIValue"),
+  trackDValue: $("trackDValue"), trackTrimValue: $("trackTrimValue"),
+  lineCalibrationValue: $("lineCalibrationValue"), lineCalibrationButton: $("lineCalibrationButton"),
+  copySensorButton: $("copySensorButton"),
   servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
-  stageParamsButton: $("stageParamsButton"), applyParamsButton: $("applyParamsButton"),
-  cancelParamsButton: $("cancelParamsButton"),
+  applyParamsButton: $("applyParamsButton"), cancelParamsButton: $("cancelParamsButton"),
   runNote: $("runNote"), sampleInterval: $("sampleInterval"), sampleNowButton: $("sampleNowButton"),
   recordButton: $("recordButton"), recordStatus: $("recordStatus"),
-  exportLogButton: $("exportLogButton"), clearLogButton: $("clearLogButton"), logWindow: $("logWindow")
+  exportLogButton: $("exportLogButton"), clearLogButton: $("clearLogButton"), logWindow: $("logWindow"),
+  logTitle: $("logTitle"), logProfileHint: $("logProfileHint")
 };
 
 const state = {
   connected: false, mode: "standby", motion: "stop", gear: "HIGH",
-  trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false
+  trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false,
+  lineCalibrated: false, lineCalibrating: false, trackEnd: "NONE"
 };
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
@@ -50,12 +50,16 @@ const telemetry = {
   leftDistance: null, rightDistance: null,
   lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
   lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
-  lineErrorX100: null, lineTrim: null
+  lineErrorX100: null, lineTrim: null, trackBase: null,
+  trackP: null, trackI: null, trackD: null,
+  trackPeakErrorX100: null, trackPeakState: "LOST", trackPeakMs: null,
+  trackPeakP: null, trackPeakI: null, trackPeakD: null, trackPeakTrim: null,
+  trackPeakPercent: [null, null, null, null], trackEndMs: null,
+  trackEndPercent: [null, null, null, null]
 };
 
 const knownParams = {};
-const motorChannels = { LF: 0, LB: 0, RF: 0, RB: 0 };
-const logRecords = [];
+const sampleRecords = [];
 let paramsLoaded = false;
 let bluetoothDevice = null;
 let lastGrantedBleDevice = null;
@@ -71,6 +75,11 @@ let writeQueue = Promise.resolve();
 let intentionalDisconnect = false;
 let sampleTimer = null;
 let recording = false;
+let recordingMode = null;
+let sampleCapturePending = false;
+let sampleCaptureMode = null;
+let lastFailureSignature = "";
+let lastSampleMode = "sensor";
 let sampleStartedAt = null;
 let joystickPointerId = null;
 let joystickX = 0;
@@ -107,6 +116,17 @@ function snapshot() {
     line_left_trans_pct: telemetry.lineLeftTransPct, line_left_long_pct: telemetry.lineLeftLongPct,
     line_right_trans_pct: telemetry.lineRightTransPct, line_right_long_pct: telemetry.lineRightLongPct,
     line_error_x100: telemetry.lineErrorX100, line_trim_cps: telemetry.lineTrim,
+    line_calibrated: state.lineCalibrated, track_base_cps: telemetry.trackBase,
+    track_p_cps: telemetry.trackP, track_i_cps: telemetry.trackI, track_d_cps: telemetry.trackD,
+    track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs,
+    track_peak_error_x100: telemetry.trackPeakErrorX100,
+    track_peak_p_cps: telemetry.trackPeakP, track_peak_i_cps: telemetry.trackPeakI,
+    track_peak_d_cps: telemetry.trackPeakD, track_peak_trim_cps: telemetry.trackPeakTrim,
+    track_peak_state: telemetry.trackPeakState, track_peak_ms: telemetry.trackPeakMs,
+    peak_left_trans_pct: telemetry.trackPeakPercent[0], peak_left_long_pct: telemetry.trackPeakPercent[1],
+    peak_right_trans_pct: telemetry.trackPeakPercent[2], peak_right_long_pct: telemetry.trackPeakPercent[3],
+    end_left_trans_pct: telemetry.trackEndPercent[0], end_left_long_pct: telemetry.trackEndPercent[1],
+    end_right_trans_pct: telemetry.trackEndPercent[2], end_right_long_pct: telemetry.trackEndPercent[3],
     track_state: state.trackState, track_running: state.trackRunning,
     avoidance: state.avoidance ? "ON" : "OFF",
     remote_speed_gear: state.gear, track_speed_gear: state.trackGear
@@ -124,13 +144,37 @@ function addLog(text, kind = "rx") {
   while (ui.logWindow.children.length > 160) ui.logWindow.firstElementChild.remove();
   ui.logWindow.scrollTop = ui.logWindow.scrollHeight;
 
-  logRecords.push({
+}
+
+function currentLogMode() {
+  if (state.mode === "remote" || state.mode === "sensor") return state.mode;
+  return lastSampleMode;
+}
+
+function recordsForMode(mode = currentLogMode()) {
+  return sampleRecords.filter((record) => record.mode === mode);
+}
+
+function updateLogProfile() {
+  const mode = recordingMode || currentLogMode();
+  const count = recordsForMode(mode).length;
+  const sensor = mode === "sensor";
+  ui.logTitle.textContent = sensor ? "巡线日志" : "遥控日志";
+  ui.logProfileHint.textContent = sensor ?
+    "记录 PID、四路传感器、失败原因和峰值误差现场。" :
+    "记录运动、编码器、直线误差与修正结果。";
+  ui.recordStatus.textContent = recording ? `采样中 · ${count}` : `${count} 条`;
+  ui.exportLogButton.disabled = count === 0;
+}
+
+function captureSample(mode, text) {
+  lastSampleMode = mode;
+  sampleRecords.push({
     time: new Date().toISOString(),
     elapsed_ms: sampleStartedAt ? Date.now() - sampleStartedAt : 0,
-    kind, text, ...snapshot()
+    sample_type: mode, text, ...snapshot(), mode
   });
-  ui.recordStatus.textContent = recording ? `采样中 · ${logRecords.length}` : `${logRecords.length} 条`;
-  ui.exportLogButton.disabled = logRecords.length === 0;
+  updateLogProfile();
 }
 
 function selectTab(name) {
@@ -142,6 +186,7 @@ function selectTab(name) {
     panel.classList.toggle("active", active);
     panel.hidden = !active;
   });
+  if (name === "logs") updateLogProfile();
 }
 
 function drawJoystick(x, y) {
@@ -209,25 +254,6 @@ function updateTurn90Status() {
   else ui.turn90Status.textContent = "未标定";
 }
 
-const driveTargetKeys = ["TARGET_L_CPS", "TARGET_R_CPS", "TARGET_REV_L_CPS", "TARGET_REV_R_CPS"];
-
-function updateDriveSpeedSummary() {
-  const valueOf = (key) => Number(paramInputs.get(key)?.value || 0);
-  const forward = Math.round((valueOf("TARGET_L_CPS") + valueOf("TARGET_R_CPS")) / 2);
-  const reverse = Math.round((valueOf("TARGET_REV_L_CPS") + valueOf("TARGET_REV_R_CPS")) / 2);
-  const minimum = valueOf("JOY_MIN_CPS");
-  ui.driveSpeedSummary.textContent = `低速 ${minimum} · 前 ${forward} · 倒 ${reverse} CPS`;
-}
-
-function scaleDriveTargets(factor) {
-  driveTargetKeys.forEach((key) => {
-    const input = paramInputs.get(key);
-    input.value = Math.min(8000, Math.round(Number(input.value) * factor));
-  });
-  updateDriveSpeedSummary();
-  ui.tuningStatus.textContent = "待暂存";
-}
-
 function setMotion(motion) {
   state.motion = motion;
   ui.motionValue.textContent = motion.toUpperCase();
@@ -269,6 +295,20 @@ function setAvoidance(enabled) {
   });
 }
 
+function setLineCalibrated(calibrated) {
+  state.lineCalibrated = calibrated;
+  ui.lineCalibrationValue.textContent = calibrated ? "百分比已标定" : "百分比未标定";
+  ui.lineCalibrationValue.classList.toggle("ready", calibrated);
+  updateAvailability();
+}
+
+function setLineCalibrating(calibrating) {
+  state.lineCalibrating = calibrating;
+  ui.lineCalibrationButton.textContent = calibrating ? "完成并保存标定" : "开始范围标定";
+  ui.lineCalibrationButton.classList.toggle("stop-button", calibrating);
+  updateAvailability();
+}
+
 function stopLinePolling() {
   if (linePollTimer) clearInterval(linePollTimer);
   linePollTimer = null;
@@ -285,6 +325,7 @@ function startLinePolling() {
 function setMode(mode) {
   if (state.mode === "sensor" && mode !== "sensor") stopLinePolling();
   state.mode = mode;
+  if (recording && recordingMode !== mode) stopSampling();
   joystickLastCommand = "";
   if (mode !== "remote") {
     setMotion("stop");
@@ -293,6 +334,7 @@ function setMode(mode) {
   if (mode !== "sensor") {
     setTrackRunning(false);
     setAvoidance(false);
+    setLineCalibrating(false);
   }
   updateAvailability();
   if (mode === "sensor") startLinePolling();
@@ -308,15 +350,17 @@ function updateAvailability() {
   document.querySelectorAll(".mode-entry-button[data-mode]").forEach((button) => {
     button.classList.toggle("selected", button.dataset.mode === state.mode);
     button.textContent = button.dataset.mode === state.mode ? "当前模式" :
-                         button.dataset.mode === "remote" ? "进入遥控" : "进入传感";
+                         button.dataset.mode === "remote" ? "进入遥控" : "进入巡线";
   });
 
   ui.modeValue.textContent = state.mode.toUpperCase();
   ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
   ui.remoteLock.textContent = remoteReady ? "已就绪" : "需进入遥控模式";
   ui.sensorLock.textContent = sensorReady ? "传感已就绪" : "需进入传感模式";
-  ui.trackStartButton.disabled = !sensorReady || state.trackRunning;
+  ui.trackStartButton.disabled = !sensorReady || state.trackRunning || !state.lineCalibrated || state.lineCalibrating;
   ui.trackStopButton.disabled = !sensorReady || !state.trackRunning;
+  ui.lineCalibrationButton.disabled = !sensorReady || state.trackRunning;
+  updateLogProfile();
 }
 
 function selectedConnectionType() {
@@ -355,6 +399,8 @@ function setConnected(connected) {
     state.motion = "stop";
     setTrackRunning(false);
     setAvoidance(false);
+    setLineCalibrated(false);
+    setLineCalibrating(false);
     joystickLastCommand = "";
     calibrationDirection = null;
     calibrationSuggestion = null;
@@ -613,19 +659,13 @@ function handleNotification(event) {
   receiveBytes(event.target.value);
 }
 
-function updateMotorFromChannels() {
-  telemetry.pwmLeft = motorChannels.LF - motorChannels.LB;
-  telemetry.pwmRight = motorChannels.RF - motorChannels.RB;
-  ui.leftMotorPwmValue.textContent = telemetry.pwmLeft;
-  ui.rightMotorPwmValue.textContent = telemetry.pwmRight;
-}
-
 function showDistance(value) {
   return value === "OUT" || value === null ? "--" : String(value);
 }
 
 function showLineSensor(raw, percent) {
-  return raw === null ? "-- · --%" : `${raw} · ${percent}%`;
+  if (raw === null) return "--";
+  return state.lineCalibrated ? `${raw} · ${percent}%` : `${raw} · 未标定`;
 }
 
 function processLine(line) {
@@ -651,15 +691,11 @@ function processLine(line) {
     setMotion(trace[1].toLowerCase());
     [telemetry.leftCps, telemetry.rightCps, telemetry.targetLeft, telemetry.targetRight,
       telemetry.pwmLeft, telemetry.pwmRight, telemetry.error, telemetry.trim, telemetry.voltageMv] = trace.slice(2).map(Number);
-    ui.leftCpsValue.textContent = telemetry.leftCps;
-    ui.rightCpsValue.textContent = telemetry.rightCps;
-    ui.leftTargetValue.textContent = telemetry.targetLeft;
-    ui.rightTargetValue.textContent = telemetry.targetRight;
-    ui.leftMotorPwmValue.textContent = telemetry.pwmLeft;
-    ui.rightMotorPwmValue.textContent = telemetry.pwmRight;
-    ui.straightErrorValue.textContent = telemetry.error;
-    ui.straightTrimValue.textContent = telemetry.trim;
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
+    if (sampleCapturePending && sampleCaptureMode === "remote") {
+      captureSample("remote", line);
+      sampleCapturePending = false;
+    }
   }
 
   const sensor = line.match(/^SENSOR D=(OUT|\d+) TH=(\d+) ROUTE=(NONE|LEFT|RIGHT|BLOCKED) SERVO=(\d+) CTRL=(AUTO|MANUAL) L=(OUT|\d+) R=(OUT|\d+)$/i);
@@ -685,27 +721,71 @@ function processLine(line) {
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
   }
 
-  const lineSensors = line.match(/^LINE RUN=(0|1) STATE=(LOST|STRAIGHT|LEFT|RIGHT|CROSS) AVOID=(ON|OFF) LT=(\d+) LL=(\d+) RT=(\d+) RL=(\d+) NLT=(\d+) NLL=(\d+) NRT=(\d+) NRL=(\d+) ERR_X100=([+-]?\d+) TRIM=([+-]?\d+)$/i);
-  if (lineSensors) {
-    setTrackRunning(lineSensors[1] === "1");
-    setTrackState(lineSensors[2].toUpperCase());
-    setAvoidance(lineSensors[3].toUpperCase() === "ON");
-    [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong,
-      telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightTransPct,
-      telemetry.lineRightLongPct, telemetry.lineErrorX100, telemetry.lineTrim] = lineSensors.slice(4).map(Number);
+  if (line.startsWith("LINE ")) {
+    const fields = Object.fromEntries(line.slice(5).split(/\s+/).map((token) => {
+      const split = token.indexOf("=");
+      return [token.slice(0, split), token.slice(split + 1)];
+    }));
+    setLineCalibrated(fields.CAL === "1");
+    setTrackState((fields.STATE || "LOST").toUpperCase());
+    setAvoidance(fields.AVOID === "ON");
+    state.trackEnd = (fields.END || "NONE").toUpperCase();
+    if (state.trackEnd === "NONE") lastFailureSignature = "";
+    telemetry.trackBase = Number(fields.BASE);
+    telemetry.trackP = Number(fields.P);
+    telemetry.trackI = Number(fields.I);
+    telemetry.trackD = Number(fields.D);
+    telemetry.lineTrim = Number(fields.TRIM);
+    telemetry.lineLeftTrans = Number(fields.LT);
+    telemetry.lineLeftLong = Number(fields.LL);
+    telemetry.lineRightTrans = Number(fields.RT);
+    telemetry.lineRightLong = Number(fields.RL);
+    telemetry.lineLeftTransPct = Number(fields.NLT);
+    telemetry.lineLeftLongPct = Number(fields.NLL);
+    telemetry.lineRightTransPct = Number(fields.NRT);
+    telemetry.lineRightLongPct = Number(fields.NRL);
+    telemetry.lineErrorX100 = Number(fields.ERR_X100);
+    telemetry.trackPeakErrorX100 = Number(fields.PEAK_X100);
+    telemetry.trackPeakP = Number(fields.PKP);
+    telemetry.trackPeakI = Number(fields.PKI);
+    telemetry.trackPeakD = Number(fields.PKD);
+    telemetry.trackPeakTrim = Number(fields.PKTRIM);
+    telemetry.trackPeakState = (fields.PEAK_STATE || "LOST").toUpperCase();
+    telemetry.trackPeakMs = Number(fields.PEAK_MS);
+    telemetry.trackPeakPercent = [fields.PKLT, fields.PKLL, fields.PKRT, fields.PKRL].map(Number);
+    telemetry.trackEndMs = Number(fields.END_MS);
+    telemetry.trackEndPercent = [fields.ENLT, fields.ENLL, fields.ENRT, fields.ENRL].map(Number);
+    setTrackRunning(fields.RUN === "1");
     ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
     ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
     ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
     ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
-    ui.lineErrorValue.textContent = `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)} · 修正 ${telemetry.lineTrim} CPS`;
+    ui.lineErrorValue.textContent = state.lineCalibrated ? `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}` : "仅显示原始 ADC";
+    ui.trackPValue.textContent = telemetry.trackP;
+    ui.trackIValue.textContent = telemetry.trackI;
+    ui.trackDValue.textContent = telemetry.trackD;
+    ui.trackTrimValue.textContent = telemetry.lineTrim;
+    const stateLabels = { LOST: "丢线", STRAIGHT: "直线", LEFT: "左转", RIGHT: "右转", CROSS: "十字" };
+    ui.trackPeakValue.textContent = state.lineCalibrated ? `${(telemetry.trackPeakErrorX100 / 100).toFixed(2)} · ${stateLabels[telemetry.trackPeakState] || telemetry.trackPeakState} · 输出 ${telemetry.trackPeakTrim}` : "--";
+    const endLabels = { NONE: "--", MANUAL: "手动停止", LOST: "丢线超时", NO_LINE: "启动时无线" };
+    ui.trackEndValue.textContent = endLabels[state.trackEnd] || state.trackEnd;
+
+    const failureSignature = `${state.trackEnd}:${telemetry.trackEndMs}:${telemetry.trackPeakErrorX100}`;
+    const isFailure = state.trackEnd === "LOST" || state.trackEnd === "NO_LINE";
+    if (sampleCapturePending && sampleCaptureMode === "sensor") {
+      captureSample("sensor", line);
+      sampleCapturePending = false;
+      if (isFailure) lastFailureSignature = failureSignature;
+    } else if (isFailure && failureSignature !== lastFailureSignature) {
+      captureSample("sensor", line);
+      lastFailureSignature = failureSignature;
+    }
   }
 
   const cps = line.match(/ENC CPS L=([+-]?\d+) R=([+-]?\d+)/i);
   if (cps) {
     telemetry.leftCps = Number(cps[1]);
     telemetry.rightCps = Number(cps[2]);
-    ui.leftCpsValue.textContent = telemetry.leftCps;
-    ui.rightCpsValue.textContent = telemetry.rightCps;
   }
 
   const counts = line.match(/^ENC COUNT L=([+-]?\d+) R=([+-]?\d+)$/i);
@@ -723,22 +803,17 @@ function processLine(line) {
   if (straight) {
     telemetry.error = Number(straight[1]);
     telemetry.trim = Number(straight[2]);
-    ui.straightErrorValue.textContent = telemetry.error;
-    ui.straightTrimValue.textContent = telemetry.trim;
   }
 
-  const motor = line.match(/MOTOR (LF|LB|RF|RB)_PWM=(\d+)/i);
-  if (motor) {
-    motorChannels[motor[1].toUpperCase()] = Number(motor[2]);
-    updateMotorFromChannels();
-  }
-
-  const param = line.match(/^(?:(?:ACTIVE|STAGED) )?([A-Z0-9_]+)=(\d+)/);
-  if (paramInputs.has(param?.[1])) {
-    knownParams[param[1]] = Number(param[2]);
-    paramInputs.get(param[1]).value = param[2];
-    if (param[1] === "TURN90_L_COUNT" || param[1] === "TURN90_R_COUNT") updateTurn90Status();
-    if (driveTargetKeys.includes(param[1]) || param[1] === "JOY_MIN_CPS") updateDriveSpeedSummary();
+  const param = line.match(/^(?:(ACTIVE|STAGED) )?([A-Z0-9_]+)=(\d+)/);
+  if (param) {
+    const source = param[1] || "ACTIVE";
+    const key = param[2];
+    const value = Number(param[3]);
+    if (source !== "STAGED") knownParams[key] = value;
+    if (paramInputs.has(key)) paramInputs.get(key).value = param[3];
+    if (key === "TURN90_L_COUNT" || key === "TURN90_R_COUNT") updateTurn90Status();
+    if (key === "LINE_CAL" && source !== "STAGED") setLineCalibrated(value === 1);
   }
   if (/^PENDING=YES$/i.test(line)) ui.tuningStatus.textContent = "有暂存";
   if (/^PENDING=NO$/i.test(line)) ui.tuningStatus.textContent = "已同步";
@@ -747,6 +822,19 @@ function processLine(line) {
     ui.tuningStatus.textContent = "已读取";
   }
   if (/^OK SAVED TO FLASH$/i.test(line)) ui.tuningStatus.textContent = "已保存";
+  if (/^OK LINE CAL START$/i.test(line)) {
+    setLineCalibrating(true);
+    setMessage("保持电机停止，手动让四个探头经过赛道与空白区域");
+  }
+  if (/^OK LINE CAL READY$/i.test(line)) {
+    setLineCalibrating(false);
+    setMessage("范围已采集，正在保存…");
+    setTimeout(() => sendCommand("APPLY"), 180);
+  }
+  if (/^ERR LINE CAL RANGE TOO SMALL$/i.test(line)) {
+    setLineCalibrating(false);
+    setMessage("标定范围太小：请让每个探头都经过赛道和空白", true);
+  }
   if (/^OK TURN90 DONE$/i.test(line)) {
     setMotion("stop");
     ui.turn90Status.textContent = "转弯完成";
@@ -762,6 +850,12 @@ function processLine(line) {
     setTrackRunning(false);
     setTrackState("LOST");
     setMessage("未检测到赛道，循迹没有启动", true);
+  }
+  else if (/^ERR TRACK NOT CALIBRATED$/i.test(line)) {
+    setMessage("请先完成四路传感器范围标定", true);
+  }
+  else if (/^ERR LINE CAL RANGE TOO SMALL$/i.test(line)) {
+    /* 上面已经给出可操作的中文提示。 */
   }
   else if (/^ERR\b/i.test(line)) setMessage(line, true);
 
@@ -820,13 +914,38 @@ function changedParameterEntries() {
     if (knownParams[key] !== value) entries.push({ key, value });
   }
 
-  const ffIndex = entries.findIndex((entry) => entry.key === "SPEED_FF_PCT");
-  const maxIndex = entries.findIndex((entry) => entry.key === "SPEED_MAX_PCT");
-  if (ffIndex >= 0 && maxIndex >= 0) {
-    const currentFf = knownParams.SPEED_FF_PCT;
-    const newMax = entries[maxIndex].value;
-    const firstKey = newMax < currentFf ? "SPEED_FF_PCT" : "SPEED_MAX_PCT";
-    entries.sort((a, b) => (a.key === firstKey ? -1 : b.key === firstKey ? 1 : 0));
+  const valueOf = (key) => Number(paramInputs.get(key)?.value);
+  if (valueOf("TRACK_MIN_CPS") > valueOf("TRACK_BASE_CPS")) {
+    setMessage("低档基础速度不能高于高档基础速度", true);
+    return null;
+  }
+  if (valueOf("TRACK_DETECT_PCT") > valueOf("TRACK_BRANCH_PCT")) {
+    setMessage("有线阈值不能高于分支阈值", true);
+    return null;
+  }
+  const calibrationPairs = [
+    ["MIN_L_TRANS", "MAX_L_TRANS"], ["MIN_L_LONG", "MAX_L_LONG"],
+    ["MIN_R_TRANS", "MAX_R_TRANS"], ["MIN_R_LONG", "MAX_R_LONG"]
+  ];
+  for (const [minimumKey, maximumKey] of calibrationPairs) {
+    if (valueOf(minimumKey) >= valueOf(maximumKey)) {
+      setMessage("每路传感器的最小值必须低于最大值", true);
+      return null;
+    }
+  }
+  const calibrationKeys = new Set(calibrationPairs.flat());
+  if (entries.some((entry) => calibrationKeys.has(entry.key)) && Number(knownParams.LINE_CAL) !== 1) {
+    entries.push({ key: "LINE_CAL", value: 1 });
+  }
+  const priority = new Map();
+  calibrationPairs.forEach(([minimumKey, maximumKey]) => {
+    const newMinimum = valueOf(minimumKey);
+    const newMaximum = valueOf(maximumKey);
+    if (newMinimum >= Number(knownParams[maximumKey])) priority.set(maximumKey, -1);
+    if (newMaximum <= Number(knownParams[minimumKey])) priority.set(minimumKey, -1);
+  });
+  if (priority.size) {
+    entries.sort((a, b) => (priority.get(a.key) || 0) - (priority.get(b.key) || 0));
   }
   return entries;
 }
@@ -854,18 +973,24 @@ async function stageChangedParameters(showEmptyMessage = true) {
 }
 
 async function sampleNow() {
-  if (!state.connected) return;
+  if (!state.connected || (state.mode !== "remote" && state.mode !== "sensor")) return;
+  sampleCapturePending = true;
+  sampleCaptureMode = state.mode;
   if (state.mode === "remote") await sendCommand("TRACE");
-  else if (state.mode === "sensor") await sendCommand("SENSOR");
-  else await sendCommand("CHECK");
+  else await sendCommand("SENSOR");
 }
 
 function startSampling() {
   if (recording || !state.connected) return;
+  if (state.mode !== "remote" && state.mode !== "sensor") {
+    setMessage("请先进入巡线或遥控模式", true);
+    return;
+  }
   recording = true;
+  recordingMode = state.mode;
   sampleStartedAt = Date.now();
   ui.recordButton.textContent = "停止采样";
-  ui.recordStatus.textContent = `采样中 · ${logRecords.length}`;
+  updateLogProfile();
   sampleNow();
   sampleTimer = setInterval(sampleNow, Number(ui.sampleInterval.value));
 }
@@ -874,8 +999,10 @@ function stopSampling() {
   if (sampleTimer) clearInterval(sampleTimer);
   sampleTimer = null;
   recording = false;
+  recordingMode = null;
+  sampleCapturePending = false;
   if (ui.recordButton) ui.recordButton.textContent = "连续采样";
-  if (ui.recordStatus) ui.recordStatus.textContent = `${logRecords.length} 条`;
+  updateLogProfile();
 }
 
 function csvCell(value) {
@@ -885,9 +1012,13 @@ function csvCell(value) {
 }
 
 function exportCsv() {
-  const columns = ["time", "elapsed_ms", "kind", "mode", "motion", "remote_speed_gear", "track_speed_gear", "track_running", "track_state", "avoidance", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv", "distance_cm", "route", "servo_deg", "servo_control", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "line_error_x100", "line_trim_cps", "note", "text"];
+  const mode = currentLogMode();
+  const records = recordsForMode(mode);
+  const remoteColumns = ["time", "elapsed_ms", "note", "motion", "remote_speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv"];
+  const sensorColumns = ["time", "elapsed_ms", "note", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
+  const columns = mode === "sensor" ? sensorColumns : remoteColumns;
   const rows = [columns.join(",")];
-  for (const record of logRecords) {
+  for (const record of records) {
     const row = { ...record, note: ui.runNote.value };
     rows.push(columns.map((column) => csvCell(row[column])).join(","));
   }
@@ -895,7 +1026,7 @@ function exportCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `smart-car-log-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  link.download = `smart-car-${mode === "sensor" ? "track" : "remote"}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -975,11 +1106,6 @@ ui.calibrateLeftButton.addEventListener("click", () => startTurnCalibration("lef
 ui.calibrateRightButton.addEventListener("click", () => startTurnCalibration("right"));
 ui.finishTurnCalibrationButton.addEventListener("click", finishTurnCalibration);
 ui.saveTurnCalibrationButton.addEventListener("click", saveTurnCalibration);
-ui.speedUp5Button.addEventListener("click", () => scaleDriveTargets(1.05));
-ui.speedUp10Button.addEventListener("click", () => scaleDriveTargets(1.10));
-[...driveTargetKeys, "JOY_MIN_CPS"].forEach((key) => {
-  paramInputs.get(key).addEventListener("input", updateDriveSpeedSummary);
-});
 
 ui.servoAngle.addEventListener("input", updateServoReadout);
 ui.sendServoButton.addEventListener("click", () => sendCommand(`SERVO ${ui.servoAngle.value}`));
@@ -992,11 +1118,36 @@ document.querySelectorAll(".servo-preset").forEach((button) => {
   });
 });
 
+ui.lineCalibrationButton.addEventListener("click", async () => {
+  if (state.lineCalibrating) {
+    await sendCommand("LINE CAL STOP");
+  } else if (await sendCommand("LINE CAL START")) {
+    setLineCalibrating(true);
+  }
+});
+
+ui.copySensorButton.addEventListener("click", async () => {
+  const values = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong];
+  if (values.some((value) => value === null)) {
+    setMessage("请先读取一次四路数据", true);
+    return;
+  }
+  const percent = state.lineCalibrated ?
+    `；百分比 ${telemetry.lineLeftTransPct}/${telemetry.lineLeftLongPct}/${telemetry.lineRightTransPct}/${telemetry.lineRightLongPct}` :
+    "；百分比未标定";
+  const text = `左横 ${values[0]}，左竖 ${values[1]}，右横 ${values[2]}，右竖 ${values[3]}${percent}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    setMessage("四路数据已复制，可以直接发给我");
+  } catch {
+    setMessage(text);
+  }
+});
+
 ui.readParamsButton.addEventListener("click", () => {
   ui.tuningStatus.textContent = "读取中…";
   sendCommand("CHECK");
 });
-ui.stageParamsButton.addEventListener("click", () => stageChangedParameters());
 ui.applyParamsButton.addEventListener("click", async () => {
   if (!(await stageChangedParameters(false))) return;
   await delay(180);
@@ -1017,22 +1168,26 @@ ui.sampleInterval.addEventListener("change", () => {
 });
 ui.exportLogButton.addEventListener("click", exportCsv);
 ui.clearLogButton.addEventListener("click", () => {
-  logRecords.length = 0;
+  const mode = currentLogMode();
+  for (let index = sampleRecords.length - 1; index >= 0; index--) {
+    if (sampleRecords[index].mode === mode) sampleRecords.splice(index, 1);
+  }
   sampleStartedAt = recording ? Date.now() : null;
   ui.logWindow.innerHTML = '<p class="muted">日志已清空</p>';
-  ui.exportLogButton.disabled = true;
-  ui.recordStatus.textContent = recording ? "采样中 · 0" : "0 条";
+  updateLogProfile();
 });
 
 ui.deviceNameFilter.value = localStorage.getItem("smartCarDevicePrefix") ?? "JDY";
 setConnected(false);
 loadGrantedDevices();
-selectTab("remote");
+selectTab("sensor");
 drawJoystick(0, 0);
 setGear("HIGH");
 setTrackGear("LOW");
 setTrackState("LOST");
 setAvoidance(false);
+setLineCalibrated(false);
+setLineCalibrating(false);
 updateTurn90Status();
-updateDriveSpeedSummary();
 updateServoReadout();
+updateLogProfile();

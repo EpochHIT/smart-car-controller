@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#07111f">
-  <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
-  <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-separated-modes">
+  <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
+  <title>智能车巡线控制台</title>
+  <link rel="stylesheet" href="styles.css?v=20260829-track-first">
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
-      <div><span class="eyebrow">STM32 · 蓝牙串口</span><h1>智能车控制台</h1></div>
+      <div><span class="eyebrow">STM32 · 巡线优先</span><h1>智能车控制台</h1></div>
       <div class="connection-state" id="connectionState"><span class="state-dot"></span><span id="connectionText">未连接</span></div>
     </header>
 
@@ -23,116 +23,51 @@
         </select>
         <input class="device-filter" id="deviceNameFilter" type="search" value="JDY" maxlength="32" list="commonDeviceNames" placeholder="BLE 设备名前缀" aria-label="BLE 设备名称前缀" hidden>
         <datalist id="commonDeviceNames"><option value="JDY"><option value="BT05"><option value="HC-08"></datalist>
-        <button class="button primary" id="connectButton" type="button">搜索设备</button>
+        <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>上次设备</button>
         <strong class="device-name" id="deviceName">--</strong>
       </div>
       <button class="button stop-button full requires-connection" data-command="STOP" type="button" disabled>■ 全局停车</button>
-      <p class="message" id="message" aria-live="polite">先在手机系统蓝牙中配对 JDY-31，再点连接</p>
+      <p class="message" id="message" aria-live="polite">先在手机系统蓝牙中配对，再点连接</p>
     </section>
 
     <nav class="tabs" aria-label="功能导航">
-      <button class="tab-button active" data-tab="remote" type="button">遥控</button>
-      <button class="tab-button" data-tab="sensor" type="button">传感</button>
+      <button class="tab-button active" data-tab="sensor" type="button">巡线</button>
+      <button class="tab-button" data-tab="remote" type="button">遥控</button>
       <button class="tab-button" data-tab="tuning" type="button">调参</button>
       <button class="tab-button" data-tab="logs" type="button">日志</button>
     </nav>
 
-    <section class="tab-panel active" id="remoteTab" data-panel="remote">
+    <section class="tab-panel active" id="sensorTab" data-panel="sensor">
       <div class="status-strip">
         <span>模式 <strong id="modeValue">STANDBY</strong></span>
-        <span>动作 <strong id="motionValue">STOP</strong></span>
+        <span>状态 <strong id="motionValue">STOP</strong></span>
         <span>电压 <strong id="voltageValue">--</strong></span>
       </div>
 
       <section class="card mode-entry-card">
-        <div><strong>手动遥控</strong><small>只启用摇杆、方向键和遥控速度参数</small></div>
-        <button class="button primary requires-connection mode-entry-button" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>进入遥控</button>
-      </section>
-
-      <section class="card joystick-card">
-        <div class="section-title"><h2>XY 摇杆</h2><span id="remoteLock">需进入遥控模式</span></div>
-        <div class="joystick-layout">
-          <button class="joystick-pad remote-only" id="joystickPad" type="button" aria-label="小车 XY 摇杆" disabled>
-            <span class="joystick-axis horizontal"></span><span class="joystick-axis vertical"></span>
-            <span class="joystick-knob" id="joystickKnob"></span>
-          </button>
-          <div class="joystick-info">
-            <strong id="joystickValue">X 0 · Y 0</strong>
-            <small>Y 速度 · X 转向</small>
-            <button class="button stop-button requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
-          </div>
-        </div>
-        <div class="gear-row">
-          <span>遥控速度档</span>
-          <div class="gear-switch" role="group" aria-label="遥控速度档">
-            <button class="gear-choice remote-only" data-gear="LOW" type="button" disabled>低</button>
-            <button class="gear-choice remote-only" data-gear="MEDIUM" type="button" disabled>中</button>
-            <button class="gear-choice remote-only selected" data-gear="HIGH" type="button" disabled>高</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="card compact-card">
-        <div class="section-title"><h2>90° 转弯</h2><span id="turn90Status">未标定</span></div>
-        <div class="button-grid two-buttons">
-          <button class="button primary remote-only" data-command="TURN90 LEFT" type="button" disabled>左转 90°</button>
-          <button class="button primary remote-only" data-command="TURN90 RIGHT" type="button" disabled>右转 90°</button>
-        </div>
-        <details class="inline-details">
-          <summary>第一次标定</summary>
-          <div class="button-grid three-buttons">
-            <button class="button ghost remote-only" id="calibrateLeftButton" type="button" disabled>测左转</button>
-            <button class="button ghost remote-only" id="calibrateRightButton" type="button" disabled>测右转</button>
-            <button class="button stop-button remote-only" id="finishTurnCalibrationButton" type="button" disabled>到 90° 停</button>
-          </div>
-          <div class="calibration-result"><span id="turnCalibrationResult">选择方向，看到 90° 时停车</span><button class="button primary requires-connection" id="saveTurnCalibrationButton" type="button" disabled>保存标定</button></div>
-        </details>
-      </section>
-
-      <details class="card fold-card">
-        <summary>直行调试与按键</summary>
-        <div class="direction-pad" aria-label="车辆方向">
-          <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><b>↑</b><small>前进</small></button>
-          <button class="drive-button remote-only left" data-command="LEFT" type="button" disabled><b>←</b><small>左转</small></button>
-          <button class="drive-button stop requires-connection" data-command="STOP" type="button" disabled><b>■</b><small>停车</small></button>
-          <button class="drive-button remote-only right" data-command="RIGHT" type="button" disabled><b>→</b><small>右转</small></button>
-          <button class="drive-button remote-only backward" data-command="BACKWARD" type="button" disabled><b>↓</b><small>后退</small></button>
-        </div>
-        <button class="button ghost full remote-only" data-command="TRACE" type="button" disabled>读取快照</button>
-        <div class="data-grid four trace-grid">
-          <div><small>左 CPS</small><strong id="leftCpsValue">--</strong></div>
-          <div><small>右 CPS</small><strong id="rightCpsValue">--</strong></div>
-          <div><small>左目标</small><strong id="leftTargetValue">--</strong></div>
-          <div><small>右目标</small><strong id="rightTargetValue">--</strong></div>
-          <div><small>左 PWM</small><strong id="leftMotorPwmValue">--</strong></div>
-          <div><small>右 PWM</small><strong id="rightMotorPwmValue">--</strong></div>
-          <div><small>比例误差</small><strong id="straightErrorValue">--</strong></div>
-          <div><small>修正 CPS</small><strong id="straightTrimValue">--</strong></div>
-        </div>
-      </details>
-    </section>
-
-    <section class="tab-panel" id="sensorTab" data-panel="sensor" hidden>
-      <section class="card mode-entry-card">
-        <div><strong>传感循迹</strong><small>只启用电感识别、循迹控制和可选避障</small></div>
-        <button class="button primary requires-connection mode-entry-button" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>进入传感</button>
+        <div><strong>传感器巡线</strong><small>比赛主功能；四路电感识别并实时 PID 修正</small></div>
+        <button class="button primary requires-connection mode-entry-button" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>进入巡线</button>
       </section>
 
       <section class="card track-control-card">
-        <div class="section-title"><h2>自动循迹</h2><span id="sensorLock">需进入传感模式</span></div>
+        <div class="section-title"><h2>巡线控制</h2><span id="sensorLock">需进入传感模式</span></div>
         <div class="track-state-hero">
-          <div><small>识别结果</small><strong id="trackStateValue">待读取</strong></div>
-          <div><small>运行状态</small><strong id="trackRunValue">已停止</strong></div>
+          <div><small>识别</small><strong id="trackStateValue">待读取</strong></div>
+          <div><small>运行</small><strong id="trackRunValue">已停止</strong></div>
           <div><small>避障</small><strong id="avoidanceValue">关闭</strong></div>
         </div>
+        <div class="track-diagnostics">
+          <span>本次峰值 <strong id="trackPeakValue">--</strong></span>
+          <span>结束原因 <strong id="trackEndValue">--</strong></span>
+        </div>
         <div class="button-grid two-buttons track-run-buttons">
-          <button class="button primary sensor-only" id="trackStartButton" data-command="TRACK START" type="button" disabled>▶ 启动循迹</button>
-          <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束循迹</button>
+          <button class="button primary sensor-only" id="trackStartButton" data-command="TRACK START" type="button" disabled>▶ 启动巡线</button>
+          <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束巡线</button>
         </div>
         <div class="gear-row">
-          <span>循迹速度档</span>
-          <div class="gear-switch" role="group" aria-label="循迹速度档">
+          <span>基础速度</span>
+          <div class="gear-switch" role="group" aria-label="巡线速度档">
             <button class="track-gear-choice sensor-only selected" data-track-gear="LOW" type="button" disabled>低</button>
             <button class="track-gear-choice sensor-only" data-track-gear="MEDIUM" type="button" disabled>中</button>
             <button class="track-gear-choice sensor-only" data-track-gear="HIGH" type="button" disabled>高</button>
@@ -148,118 +83,138 @@
       </section>
 
       <section class="card line-card">
-        <div class="section-title"><h2>赛道反馈</h2><span id="lineErrorValue">方向误差 --</span></div>
-        <div class="data-grid four line-sensor-grid">
+        <div class="section-title"><h2>赛道反馈</h2><span id="lineErrorValue">误差 --</span></div>
+        <div class="calibration-strip"><span id="lineCalibrationValue">百分比未标定</span><strong>停车时也会持续读取</strong></div>
+        <div class="data-grid four">
           <div><small>左横 · PA4</small><strong id="lineLeftTransValue">-- · --%</strong></div>
           <div><small>左竖 · PA5</small><strong id="lineLeftLongValue">-- · --%</strong></div>
           <div><small>右横 · PB1</small><strong id="lineRightTransValue">-- · --%</strong></div>
           <div><small>右竖 · PB0</small><strong id="lineRightLongValue">-- · --%</strong></div>
         </div>
-        <div class="line-controls">
-          <span>代码自动识别直线、左转、右转、十字和丢线</span>
-          <button class="button primary sensor-only" data-command="LINE" type="button" disabled>立即读取</button>
+        <div class="pid-live">
+          <span>P <strong id="trackPValue">--</strong></span>
+          <span>I <strong id="trackIValue">--</strong></span>
+          <span>D <strong id="trackDValue">--</strong></span>
+          <span>输出 <strong id="trackTrimValue">--</strong></span>
         </div>
+        <div class="button-grid three-buttons track-run-buttons"><button class="button ghost sensor-only" data-command="LINE" type="button" disabled>读取当前值</button><button class="button ghost sensor-only" id="copySensorButton" type="button" disabled>复制四路数据</button><button class="button primary sensor-only" id="lineCalibrationButton" type="button" disabled>开始范围标定</button></div>
+        <p class="group-hint calibration-hint">标定时不启动电机，手动让四个探头分别经过赛道与空白。标定后：百分比 =（当前 − 最小）÷（最大 − 最小）。</p>
       </section>
 
       <section class="card sensor-card">
-        <div class="section-title"><h2>超声波 + 舵机</h2><span id="avoidanceStatus">避障关闭</span></div>
+        <div class="section-title"><h2>避障状态</h2><span id="avoidanceStatus">避障关闭</span></div>
         <div class="sensor-hero">
           <div class="distance"><strong id="distanceValue">--</strong><span>cm</span></div>
           <div class="data-grid two">
-            <div><small>建议方向</small><strong id="routeValue">NONE</strong></div>
+            <div><small>绕行方向</small><strong id="routeValue">NONE</strong></div>
             <div><small>舵机</small><strong id="servoValue">--</strong></div>
-            <div><small>控制</small><strong id="servoControlValue">AUTO</strong></div>
-            <div><small>阈值</small><strong id="thresholdValue">--</strong></div>
+            <div><small>左侧 cm</small><strong id="leftDistanceValue">--</strong></div>
+            <div><small>右侧 cm</small><strong id="rightDistanceValue">--</strong></div>
           </div>
         </div>
-        <div class="side-distance"><span>左侧 <strong id="leftDistanceValue">--</strong> cm</span><span>右侧 <strong id="rightDistanceValue">--</strong> cm</span></div>
         <details class="inline-details">
-          <summary>手动测试舵机</summary>
-          <label class="range-row" for="servoAngle"><span>手动角度</span><output id="servoAngleValue">90°</output></label>
+          <summary>避障硬件测试</summary>
+          <label class="range-row" for="servoAngle"><span>舵机角度</span><output id="servoAngleValue">90°</output></label>
           <input class="range sensor-only" id="servoAngle" type="range" min="0" max="180" value="90" disabled>
-          <div class="button-grid">
+          <div class="button-grid two-buttons">
             <button class="button primary sensor-only" id="sendServoButton" type="button" disabled>转到 90°</button>
-            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_L" type="button" disabled>左看</button>
-            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_C" type="button" disabled>回中</button>
-            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_R" type="button" disabled>右看</button>
-            <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>自动</button>
-            <button class="button ghost sensor-only" data-command="SENSOR" type="button" disabled>刷新</button>
+            <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>恢复自动</button>
           </div>
+          <span class="hidden-readout" id="servoControlValue">AUTO</span><span class="hidden-readout" id="thresholdValue">--</span>
         </details>
       </section>
     </section>
 
+    <section class="tab-panel" id="remoteTab" data-panel="remote" hidden>
+      <section class="card mode-entry-card">
+        <div><strong>蓝牙测试遥控</strong><small>附加工具；用于确认运动、直线和转向</small></div>
+        <button class="button primary requires-connection mode-entry-button" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>进入遥控</button>
+      </section>
+
+      <section class="card joystick-card">
+        <div class="section-title"><h2>XY 摇杆</h2><span id="remoteLock">需进入遥控模式</span></div>
+        <div class="joystick-layout">
+          <button class="joystick-pad remote-only" id="joystickPad" type="button" aria-label="小车 XY 摇杆" disabled>
+            <span class="joystick-axis horizontal"></span><span class="joystick-axis vertical"></span>
+            <span class="joystick-knob" id="joystickKnob"></span>
+          </button>
+          <div class="joystick-info"><strong id="joystickValue">X 0 · Y 0</strong><small>Y 速度 · X 转向</small><button class="button stop-button requires-connection" data-command="STOP" type="button" disabled>■ 停车</button></div>
+        </div>
+        <div class="gear-row">
+          <span>遥控速度</span>
+          <div class="gear-switch"><button class="gear-choice remote-only" data-gear="LOW" type="button" disabled>低</button><button class="gear-choice remote-only" data-gear="MEDIUM" type="button" disabled>中</button><button class="gear-choice remote-only selected" data-gear="HIGH" type="button" disabled>高</button></div>
+        </div>
+      </section>
+
+      <details class="card fold-card">
+        <summary>基础运动与 90° 标定</summary>
+        <div class="direction-pad">
+          <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><b>↑</b><small>前进</small></button>
+          <button class="drive-button remote-only left" data-command="LEFT" type="button" disabled><b>←</b><small>左转</small></button>
+          <button class="drive-button stop requires-connection" data-command="STOP" type="button" disabled><b>■</b><small>停车</small></button>
+          <button class="drive-button remote-only right" data-command="RIGHT" type="button" disabled><b>→</b><small>右转</small></button>
+          <button class="drive-button remote-only backward" data-command="BACKWARD" type="button" disabled><b>↓</b><small>后退</small></button>
+        </div>
+        <div class="section-title compact-title"><h2>90°</h2><span id="turn90Status">未标定</span></div>
+        <div class="button-grid two-buttons"><button class="button primary remote-only" data-command="TURN90 LEFT" type="button" disabled>左转 90°</button><button class="button primary remote-only" data-command="TURN90 RIGHT" type="button" disabled>右转 90°</button></div>
+        <details class="inline-details">
+          <summary>第一次标定</summary>
+          <div class="button-grid three-buttons"><button class="button ghost remote-only" id="calibrateLeftButton" type="button" disabled>测左转</button><button class="button ghost remote-only" id="calibrateRightButton" type="button" disabled>测右转</button><button class="button stop-button remote-only" id="finishTurnCalibrationButton" type="button" disabled>到 90° 停</button></div>
+          <div class="calibration-result"><span id="turnCalibrationResult">选择方向，看到 90° 时停车</span><button class="button primary requires-connection" id="saveTurnCalibrationButton" type="button" disabled>保存</button></div>
+        </details>
+      </details>
+    </section>
+
     <section class="tab-panel" id="tuningTab" data-panel="tuning" hidden>
       <section class="card tuning-card">
-        <div class="section-title"><h2>参数工作台</h2><span id="tuningStatus">未读取</span></div>
-        <div class="button-grid tuning-actions">
-          <button class="button ghost requires-connection" id="readParamsButton" type="button" disabled>读取</button>
-          <button class="button ghost requires-connection" id="stageParamsButton" type="button" disabled>暂存</button>
-          <button class="button primary requires-connection" id="applyParamsButton" type="button" disabled>保存</button>
-          <button class="button ghost requires-connection" id="cancelParamsButton" type="button" disabled>取消</button>
-        </div>
+        <div class="section-title"><h2>巡线调参</h2><span id="tuningStatus">未读取</span></div>
+        <div class="button-grid tuning-actions"><button class="button ghost requires-connection" id="readParamsButton" type="button" disabled>读取</button><button class="button primary requires-connection" id="applyParamsButton" type="button" disabled>保存</button><button class="button ghost requires-connection" id="cancelParamsButton" type="button" disabled>取消</button></div>
 
         <details class="parameter-group" open>
-          <summary>遥控：速度与转弯</summary>
-          <div class="speed-stepper"><span id="driveSpeedSummary">低速 3900 · 前 4300 · 倒 4300 CPS</span><button class="button ghost requires-connection" id="speedUp5Button" type="button" disabled>整体 +5%</button><button class="button ghost requires-connection" id="speedUp10Button" type="button" disabled>整体 +10%</button></div>
+          <summary>巡线 PID 与提速</summary>
           <div class="parameter-grid">
-            <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>前进右 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>倒车左 CPS<input class="param-input requires-connection" data-param="TARGET_REV_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>倒车右 CPS<input class="param-input requires-connection" data-param="TARGET_REV_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>转弯 CPS<input class="param-input requires-connection" data-param="TURN_CPS" type="number" min="0" max="8000" value="3000" disabled></label>
-            <label>左 90° count<input class="param-input requires-connection" data-param="TURN90_L_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
-            <label>右 90° count<input class="param-input requires-connection" data-param="TURN90_R_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
-            <label>摇杆最低 CPS<input class="param-input requires-connection" data-param="JOY_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-          </div>
-          <p class="group-hint">只影响手动遥控，不作为自动循迹速度。</p>
-        </details>
-
-        <details class="parameter-group">
-          <summary>电机底层闭环（两种模式共用）</summary>
-          <div class="parameter-grid">
-            <label>前馈 PWM<input class="param-input requires-connection" data-param="SPEED_FF_PCT" type="number" min="0" max="100" value="60" disabled></label>
-            <label>最大 PWM<input class="param-input requires-connection" data-param="SPEED_MAX_PCT" type="number" min="0" max="100" value="80" disabled></label>
-            <label>Kp ×10000<input class="param-input requires-connection" data-param="SPEED_KP_X10000" type="number" min="0" max="1000" value="50" disabled></label>
-            <label>Ki ×10000<input class="param-input requires-connection" data-param="SPEED_KI_X10000" type="number" min="0" max="1000" value="40" disabled></label>
-          </div>
-          <p class="group-hint">只负责把目标 CPS 变成左右电机 PWM；遥控和循迹各自拥有独立目标速度。</p>
-        </details>
-
-        <details class="parameter-group">
-          <summary>遥控：直线修正</summary>
-          <div class="parameter-grid">
-            <label>直线 Kp ×1000<input class="param-input requires-connection" data-param="STRAIGHT_KP_X1000" type="number" min="0" max="1000" value="100" disabled></label>
-            <label>死区 count<input class="param-input requires-connection" data-param="STRAIGHT_DB_COUNT" type="number" min="0" max="1000" value="10" disabled></label>
-            <label>最大修正 CPS<input class="param-input requires-connection" data-param="STRAIGHT_MAX_CPS" type="number" min="0" max="1000" value="250" disabled></label>
-          </div>
-        </details>
-
-        <details class="parameter-group" open>
-          <summary>循迹：识别与速度</summary>
-          <div class="parameter-grid">
-            <label>循迹最低 CPS<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>循迹左轮上限<input class="param-input requires-connection" data-param="TRACK_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>循迹右轮上限<input class="param-input requires-connection" data-param="TRACK_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>转向 Kp ×100<input class="param-input requires-connection" data-param="TRACK_KP_X100" type="number" min="0" max="5000" value="1000" disabled></label>
-            <label>最大差速修正 CPS<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
-            <label>检测阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
-            <label>分支阈值 %<input class="param-input requires-connection" data-param="TRACK_BRANCH_PCT" type="number" min="0" max="100" value="60" disabled></label>
+            <label>低档基础 CPS<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>高档基础 CPS<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>巡线 Kp ×100<input class="param-input requires-connection" data-param="TRACK_KP_X100" type="number" min="0" max="5000" value="1000" disabled></label>
+            <label>巡线 Ki ×1000<input class="param-input requires-connection" data-param="TRACK_KI_X1000" type="number" min="0" max="5000" value="0" disabled></label>
+            <label>巡线 Kd ×100<input class="param-input requires-connection" data-param="TRACK_KD_X100" type="number" min="0" max="5000" value="20" disabled></label>
+            <label>最大转向输出 CPS<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
+            <label>丢线找回时间 ms<input class="param-input requires-connection" data-param="TRACK_LOST_MS" type="number" min="0" max="2000" value="300" disabled></label>
             <label>转向反向<select class="param-input requires-connection" data-param="TRACK_REVERSE" disabled><option value="0">否</option><option value="1">是</option></select></label>
           </div>
-          <p class="group-hint">检测阈值用于丢线判断；左右横向传感器超过分支阈值后识别左转、右转或十字。</p>
+          <p class="group-hint">先用低档调稳 Kp/Kd，再逐步提高高档基础速度；Ki 默认关闭。</p>
+        </details>
+
+        <details class="parameter-group" open>
+          <summary>赛道识别</summary>
+          <div class="parameter-grid"><label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label><label>分支阈值 %<input class="param-input requires-connection" data-param="TRACK_BRANCH_PCT" type="number" min="0" max="100" value="60" disabled></label></div>
+          <p class="group-hint">左右横向同时超过分支阈值识别十字；十字默认直行。</p>
         </details>
 
         <details class="parameter-group">
-          <summary>传感：超声波 / 舵机 / 避障</summary>
+          <summary>四路标定范围（需要时手动修正）</summary>
           <div class="parameter-grid">
-            <label>障碍阈值 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="0" max="400" value="30" disabled></label>
-            <label>测距周期 ms<input class="param-input requires-connection" data-param="US_PERIOD_MS" type="number" min="60" max="1000" value="70" disabled></label>
-            <label>左角度<input class="param-input requires-connection" data-param="SERVO_L" type="number" min="0" max="180" value="150" disabled></label>
-            <label>中角度<input class="param-input requires-connection" data-param="SERVO_C" type="number" min="0" max="180" value="90" disabled></label>
-            <label>右角度<input class="param-input requires-connection" data-param="SERVO_R" type="number" min="0" max="180" value="30" disabled></label>
-            <label>稳定时间 ms<input class="param-input requires-connection" data-param="SERVO_SETTLE_MS" type="number" min="100" max="2000" value="350" disabled></label>
-            <label>重扫间隔 ms<input class="param-input requires-connection" data-param="RESCAN_MS" type="number" min="0" max="5000" value="700" disabled></label>
+            <label>左横最小<input class="param-input requires-connection" data-param="MIN_L_TRANS" type="number" min="0" max="4095" value="0" disabled></label><label>左横最大<input class="param-input requires-connection" data-param="MAX_L_TRANS" type="number" min="1" max="4095" value="2400" disabled></label>
+            <label>左竖最小<input class="param-input requires-connection" data-param="MIN_L_LONG" type="number" min="0" max="4095" value="0" disabled></label><label>左竖最大<input class="param-input requires-connection" data-param="MAX_L_LONG" type="number" min="1" max="4095" value="2400" disabled></label>
+            <label>右横最小<input class="param-input requires-connection" data-param="MIN_R_TRANS" type="number" min="0" max="4095" value="0" disabled></label><label>右横最大<input class="param-input requires-connection" data-param="MAX_R_TRANS" type="number" min="1" max="4095" value="2400" disabled></label>
+            <label>右竖最小<input class="param-input requires-connection" data-param="MIN_R_LONG" type="number" min="0" max="4095" value="0" disabled></label><label>右竖最大<input class="param-input requires-connection" data-param="MAX_R_LONG" type="number" min="1" max="4095" value="2400" disabled></label>
+          </div>
+        </details>
+
+        <details class="parameter-group">
+          <summary>一次避障</summary>
+          <div class="parameter-grid"><label>障碍阈值 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="0" max="400" value="30" disabled></label><label>舵机左角<input class="param-input requires-connection" data-param="SERVO_L" type="number" min="0" max="180" value="150" disabled></label><label>舵机中角<input class="param-input requires-connection" data-param="SERVO_C" type="number" min="0" max="180" value="90" disabled></label><label>舵机右角<input class="param-input requires-connection" data-param="SERVO_R" type="number" min="0" max="180" value="30" disabled></label></div>
+        </details>
+
+        <details class="parameter-group">
+          <summary>遥控附加标定</summary>
+          <div class="parameter-grid">
+            <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label><label>前进右 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>倒车左 CPS<input class="param-input requires-connection" data-param="TARGET_REV_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label><label>倒车右 CPS<input class="param-input requires-connection" data-param="TARGET_REV_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>直线 Kp ×1000<input class="param-input requires-connection" data-param="STRAIGHT_KP_X1000" type="number" min="0" max="1000" value="100" disabled></label><label>直线死区 count<input class="param-input requires-connection" data-param="STRAIGHT_DB_COUNT" type="number" min="0" max="1000" value="10" disabled></label>
+            <label>直线最大修正<input class="param-input requires-connection" data-param="STRAIGHT_MAX_CPS" type="number" min="0" max="1000" value="250" disabled></label><label>转弯 CPS<input class="param-input requires-connection" data-param="TURN_CPS" type="number" min="0" max="8000" value="3000" disabled></label>
+            <label>左 90° count<input class="param-input requires-connection" data-param="TURN90_L_COUNT" type="number" min="0" max="20000" value="0" disabled></label><label>右 90° count<input class="param-input requires-connection" data-param="TURN90_R_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
+            <label>摇杆最低 CPS<input class="param-input requires-connection" data-param="JOY_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
           </div>
         </details>
       </section>
@@ -267,10 +222,11 @@
 
     <section class="tab-panel" id="logsTab" data-panel="logs" hidden>
       <section class="card log-card">
-        <div class="section-title"><h2>实验日志</h2><span id="recordStatus">0 条</span></div>
-        <input class="note-input" id="runNote" type="text" placeholder="备注：电压 / 地面 / 距离 / 偏移方向">
+        <div class="section-title"><h2 id="logTitle">巡线日志</h2><span id="recordStatus">0 条</span></div>
+        <p class="group-hint log-hint" id="logProfileHint">记录 PID、四路传感器、失败原因和峰值误差现场。</p>
+        <input class="note-input" id="runNote" type="text" placeholder="备注：速度档 / 场地 / 失败位置">
         <div class="log-controls">
-          <select id="sampleInterval" aria-label="采样间隔"><option value="500">0.5s</option><option value="1000" selected>1s</option><option value="2000">2s</option></select>
+          <select id="sampleInterval" aria-label="采样间隔"><option value="500" selected>0.5s</option><option value="1000">1s</option><option value="2000">2s</option></select>
           <button class="button ghost requires-connection" id="sampleNowButton" type="button" disabled>采样</button>
           <button class="button primary requires-connection" id="recordButton" type="button" disabled>连续采样</button>
           <button class="button ghost" id="exportLogButton" type="button" disabled>导出 CSV</button>
@@ -280,6 +236,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-separated-modes"></script>
+  <script src="app.js?v=20260829-track-first"></script>
 </body>
 </html>
