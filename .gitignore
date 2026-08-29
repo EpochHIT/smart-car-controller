@@ -3,3 +3,4 @@
 android-app/.gradle/
 android-app/local.properties
 android-app/**/build/
+artifacts/
