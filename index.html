@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-device-search">
+  <link rel="stylesheet" href="styles.css?v=20260829-last-device">
 </head>
 <body>
   <main class="app-shell">
@@ -20,7 +20,7 @@
         <input class="device-filter" id="deviceNameFilter" type="search" value="JDY" maxlength="32" list="commonDeviceNames" placeholder="设备名前缀，留空显示全部" aria-label="蓝牙设备名称前缀">
         <datalist id="commonDeviceNames"><option value="JDY"><option value="BT05"><option value="HC-08"></datalist>
         <button class="button primary" id="connectButton" type="button">搜索设备</button>
-        <button class="button ghost" id="disconnectButton" type="button" disabled>断开</button>
+        <button class="button ghost" id="disconnectButton" type="button" disabled>上次设备</button>
         <strong class="device-name" id="deviceName">--</strong>
       </div>
       <div class="mode-switch" role="group" aria-label="运行模式">
@@ -196,6 +196,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-device-search"></script>
+  <script src="app.js?v=20260829-last-device"></script>
 </body>
 </html>

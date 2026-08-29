@@ -45,6 +45,7 @@ const motorChannels = { LF: 0, LB: 0, RF: 0, RB: 0 };
 const logRecords = [];
 let paramsLoaded = false;
 let bluetoothDevice = null;
+let lastGrantedDevice = null;
 let uartCharacteristic = null;
 let receiveBuffer = "";
 let writeQueue = Promise.resolve();
@@ -236,7 +237,8 @@ function setConnected(connected) {
   ui.connectionState.classList.toggle("connected", connected);
   ui.connectionText.textContent = connected ? "已连接" : "未连接";
   ui.connectButton.disabled = connected;
-  ui.disconnectButton.disabled = !connected;
+  ui.disconnectButton.disabled = !connected && !lastGrantedDevice;
+  ui.disconnectButton.textContent = connected ? "断开" : "上次设备";
   ui.deviceNameFilter.disabled = connected;
   if (!connected) {
     state.mode = "standby";
@@ -249,6 +251,28 @@ function setConnected(connected) {
     stopSampling();
   }
   updateAvailability();
+}
+
+async function connectDevice(device) {
+  bluetoothDevice = device;
+  bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
+  setMessage("正在连接…");
+  const server = await bluetoothDevice.gatt.connect();
+  const service = await server.getPrimaryService(SERVICE_UUID);
+  uartCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+  if (uartCharacteristic.properties.notify || uartCharacteristic.properties.indicate) {
+    await uartCharacteristic.startNotifications();
+    uartCharacteristic.addEventListener("characteristicvaluechanged", handleNotification);
+  }
+
+  lastGrantedDevice = device;
+  localStorage.setItem("smartCarDeviceId", device.id);
+  intentionalDisconnect = false;
+  ui.deviceName.textContent = bluetoothDevice.name || "未命名设备";
+  setConnected(true);
+  addLog(`CONNECTED ${bluetoothDevice.name || "UNKNOWN"}`);
+  await sendCommand("CHECK");
+  setMessage("连接成功");
 }
 
 async function connectBluetooth() {
@@ -264,23 +288,8 @@ async function connectBluetooth() {
     else requestOptions.acceptAllDevices = true;
     localStorage.setItem("smartCarDevicePrefix", namePrefix);
     setMessage(namePrefix ? `只显示名称以 ${namePrefix} 开头的设备…` : "显示附近全部蓝牙设备…");
-    bluetoothDevice = await navigator.bluetooth.requestDevice(requestOptions);
-    bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
-    setMessage("正在连接…");
-    const server = await bluetoothDevice.gatt.connect();
-    const service = await server.getPrimaryService(SERVICE_UUID);
-    uartCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-    if (uartCharacteristic.properties.notify || uartCharacteristic.properties.indicate) {
-      await uartCharacteristic.startNotifications();
-      uartCharacteristic.addEventListener("characteristicvaluechanged", handleNotification);
-    }
-
-    intentionalDisconnect = false;
-    ui.deviceName.textContent = bluetoothDevice.name || "未命名设备";
-    setConnected(true);
-    addLog(`CONNECTED ${bluetoothDevice.name || "UNKNOWN"}`);
-    await sendCommand("CHECK");
-    setMessage("连接成功");
+    const selectedDevice = await navigator.bluetooth.requestDevice(requestOptions);
+    await connectDevice(selectedDevice);
   } catch (error) {
     if (error.name === "NotFoundError") {
       setMessage("未选择设备；可修改前缀或留空重试");
@@ -290,6 +299,35 @@ async function connectBluetooth() {
     setConnected(false);
     setMessage(`连接失败：${error.message}`, true);
     addLog(error.message, "error");
+  }
+}
+
+async function connectLastDevice() {
+  if (!lastGrantedDevice) return;
+  try {
+    setMessage(`连接上次设备：${lastGrantedDevice.name || "未命名设备"}…`);
+    await connectDevice(lastGrantedDevice);
+  } catch (error) {
+    uartCharacteristic = null;
+    setConnected(false);
+    setMessage(`上次设备连接失败：${error.message}`, true);
+    addLog(error.message, "error");
+  }
+}
+
+async function loadGrantedDevices() {
+  if (!navigator.bluetooth?.getDevices) return;
+  try {
+    const devices = await navigator.bluetooth.getDevices();
+    const savedId = localStorage.getItem("smartCarDeviceId");
+    lastGrantedDevice = devices.find((device) => device.id === savedId) ||
+                        (devices.length === 1 ? devices[0] : null);
+    if (!lastGrantedDevice) return;
+    ui.deviceName.textContent = `上次：${lastGrantedDevice.name || "未命名设备"}`;
+    setConnected(false);
+    setMessage("可直接连接上次设备，或搜索新设备");
+  } catch (_) {
+    return;
   }
 }
 
@@ -306,7 +344,7 @@ function handleDisconnected() {
   uartCharacteristic = null;
   receiveBuffer = "";
   setConnected(false);
-  ui.deviceName.textContent = "--";
+  ui.deviceName.textContent = lastGrantedDevice ? `上次：${lastGrantedDevice.name || "未命名设备"}` : "--";
   setMessage(planned ? "已停车并断开" : "意外断线，无法确认停车", !planned);
   addLog(planned ? "DISCONNECTED" : "UNEXPECTED DISCONNECT", planned ? "rx" : "error");
 }
@@ -607,7 +645,7 @@ function exportCsv() {
 }
 
 ui.connectButton.addEventListener("click", connectBluetooth);
-ui.disconnectButton.addEventListener("click", disconnectBluetooth);
+ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectBluetooth() : connectLastDevice());
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
 
 document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {
@@ -702,6 +740,7 @@ ui.clearLogButton.addEventListener("click", () => {
 
 ui.deviceNameFilter.value = localStorage.getItem("smartCarDevicePrefix") ?? "JDY";
 setConnected(false);
+loadGrantedDevices();
 selectTab("remote");
 drawJoystick(0, 0);
 updateTurn90Status();
