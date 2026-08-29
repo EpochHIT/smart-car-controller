@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-sensor-status">
+  <link rel="stylesheet" href="styles.css?v=20260829-comms">
 </head>
 <body>
   <main class="app-shell">
@@ -201,7 +201,7 @@
         <p class="group-hint log-hint" id="logProfileHint">记录 PID、四路传感器、失败原因和峰值误差现场。</p>
         <input class="note-input" id="runNote" type="text" placeholder="备注：速度档 / 场地 / 失败位置">
         <div class="log-controls">
-          <select id="sampleInterval" aria-label="采样间隔"><option value="500" selected>0.5s</option><option value="1000">1s</option><option value="2000">2s</option></select>
+          <select id="sampleInterval" aria-label="采样间隔"><option value="500">0.5s（仅遥控）</option><option value="1000" selected>1s</option><option value="2000">2s</option></select>
           <button class="button ghost requires-connection" id="sampleNowButton" type="button" disabled>采样</button>
           <button class="button primary requires-connection" id="recordButton" type="button" disabled>连续采样</button>
           <button class="button ghost" id="exportLogButton" type="button" disabled>导出 CSV</button>
@@ -211,6 +211,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-sensor-status"></script>
+  <script src="app.js?v=20260829-comms"></script>
 </body>
 </html>
