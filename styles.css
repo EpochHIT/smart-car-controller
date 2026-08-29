@@ -35,7 +35,8 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 
 .card { margin-bottom: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(145deg, rgba(18, 40, 64, .96), rgba(11, 25, 42, .96)); box-shadow: 0 14px 34px rgba(0, 0, 0, .2); }
 .quick-panel { padding: 12px; }
-.connect-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.connect-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
+.device-filter { min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: #071321; color: var(--text); font-weight: 750; }
 .device-name { grid-column: 1 / -1; padding: 7px 3px 2px; color: var(--muted); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .button { min-height: 42px; padding: 9px 13px; border: 1px solid transparent; border-radius: 11px; cursor: pointer; font-weight: 850; }
@@ -153,6 +154,8 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 @media (max-width: 370px) {
   .app-shell { padding-left: 9px; padding-right: 9px; }
   .mode-choice { font-size: .76rem; }
+  .connect-row { grid-template-columns: 1fr auto; }
+  .device-filter { grid-column: 1 / -1; }
   .direction-pad { grid-template-columns: repeat(3, 70px); }
   .joystick-layout { grid-template-columns: 1fr; }
   .joystick-pad { width: min(72vw, 230px); }

@@ -8,7 +8,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  deviceName: $("deviceName"), message: $("message"),
+  deviceNameFilter: $("deviceNameFilter"), deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
   joystickPad: $("joystickPad"), joystickKnob: $("joystickKnob"), joystickValue: $("joystickValue"),
@@ -237,6 +237,7 @@ function setConnected(connected) {
   ui.connectionText.textContent = connected ? "已连接" : "未连接";
   ui.connectButton.disabled = connected;
   ui.disconnectButton.disabled = !connected;
+  ui.deviceNameFilter.disabled = connected;
   if (!connected) {
     state.mode = "standby";
     state.motion = "stop";
@@ -257,11 +258,13 @@ async function connectBluetooth() {
   }
 
   try {
-    setMessage("选择蓝牙设备…");
-    bluetoothDevice = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SERVICE_UUID]
-    });
+    const namePrefix = ui.deviceNameFilter.value.trim();
+    const requestOptions = { optionalServices: [SERVICE_UUID] };
+    if (namePrefix) requestOptions.filters = [{ namePrefix }];
+    else requestOptions.acceptAllDevices = true;
+    localStorage.setItem("smartCarDevicePrefix", namePrefix);
+    setMessage(namePrefix ? `只显示名称以 ${namePrefix} 开头的设备…` : "显示附近全部蓝牙设备…");
+    bluetoothDevice = await navigator.bluetooth.requestDevice(requestOptions);
     bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
     setMessage("正在连接…");
     const server = await bluetoothDevice.gatt.connect();
@@ -280,7 +283,7 @@ async function connectBluetooth() {
     setMessage("连接成功");
   } catch (error) {
     if (error.name === "NotFoundError") {
-      setMessage("已取消选择");
+      setMessage("未选择设备；可修改前缀或留空重试");
       return;
     }
     uartCharacteristic = null;
@@ -697,6 +700,7 @@ ui.clearLogButton.addEventListener("click", () => {
   ui.recordStatus.textContent = recording ? "采样中 · 0" : "0 条";
 });
 
+ui.deviceNameFilter.value = localStorage.getItem("smartCarDevicePrefix") ?? "JDY";
 setConnected(false);
 selectTab("remote");
 drawJoystick(0, 0);
