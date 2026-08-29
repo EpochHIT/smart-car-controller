@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260829-joystick">
 </head>
 <body>
   <main class="app-shell">
@@ -44,8 +44,40 @@
         <span>电压 <strong id="voltageValue">--</strong></span>
       </div>
 
-      <div class="card remote-card">
-        <div class="section-title"><h2>方向</h2><span id="remoteLock">需进入遥控模式</span></div>
+      <section class="card joystick-card">
+        <div class="section-title"><h2>XY 摇杆</h2><span id="remoteLock">需进入遥控模式</span></div>
+        <div class="joystick-layout">
+          <button class="joystick-pad remote-only" id="joystickPad" type="button" aria-label="小车 XY 摇杆" disabled>
+            <span class="joystick-axis horizontal"></span><span class="joystick-axis vertical"></span>
+            <span class="joystick-knob" id="joystickKnob"></span>
+          </button>
+          <div class="joystick-info">
+            <strong id="joystickValue">X 0 · Y 0</strong>
+            <small>Y 速度 · X 转向</small>
+            <button class="button stop-button requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card compact-card">
+        <div class="section-title"><h2>90° 转弯</h2><span id="turn90Status">未标定</span></div>
+        <div class="button-grid two-buttons">
+          <button class="button primary remote-only" data-command="TURN90 LEFT" type="button" disabled>左转 90°</button>
+          <button class="button primary remote-only" data-command="TURN90 RIGHT" type="button" disabled>右转 90°</button>
+        </div>
+        <details class="inline-details">
+          <summary>第一次标定</summary>
+          <div class="button-grid three-buttons">
+            <button class="button ghost remote-only" id="calibrateLeftButton" type="button" disabled>测左转</button>
+            <button class="button ghost remote-only" id="calibrateRightButton" type="button" disabled>测右转</button>
+            <button class="button stop-button remote-only" id="finishTurnCalibrationButton" type="button" disabled>到 90° 停</button>
+          </div>
+          <div class="calibration-result"><span id="turnCalibrationResult">选择方向，看到 90° 时停车</span><button class="button primary requires-connection" id="saveTurnCalibrationButton" type="button" disabled>保存标定</button></div>
+        </details>
+      </section>
+
+      <details class="card fold-card">
+        <summary>直行调试与按键</summary>
         <div class="direction-pad" aria-label="车辆方向">
           <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><b>↑</b><small>前进</small></button>
           <button class="drive-button remote-only left" data-command="LEFT" type="button" disabled><b>←</b><small>左转</small></button>
@@ -53,30 +85,8 @@
           <button class="drive-button remote-only right" data-command="RIGHT" type="button" disabled><b>→</b><small>右转</small></button>
           <button class="drive-button remote-only backward" data-command="BACKWARD" type="button" disabled><b>↓</b><small>后退</small></button>
         </div>
-      </div>
-
-      <div class="two-column">
-        <section class="card compact-card">
-          <div class="section-title"><h2>闭环直行</h2><span>CPS</span></div>
-          <div class="action-stack">
-            <button class="button primary remote-only" data-command="FORWARD" type="button" disabled>开始直行</button>
-            <button class="button ghost remote-only" data-command="TRACE" type="button" disabled>读取快照</button>
-          </div>
-        </section>
-
-        <section class="card compact-card">
-          <div class="section-title"><h2>独立 PWM</h2><span>开环</span></div>
-          <label class="range-row" for="leftPwm"><span>左</span><output id="leftPwmValue">30%</output></label>
-          <input class="range remote-only" id="leftPwm" type="range" min="0" max="100" value="30" disabled>
-          <label class="range-row" for="rightPwm"><span>右</span><output id="rightPwmValue">30%</output></label>
-          <input class="range remote-only" id="rightPwm" type="range" min="0" max="100" value="30" disabled>
-          <button class="button primary full remote-only" id="sendPwmButton" type="button" disabled>发送 30 / 30</button>
-        </section>
-      </div>
-
-      <section class="card compact-card">
-        <div class="section-title"><h2>直线数据</h2><span>TRACE</span></div>
-        <div class="data-grid four">
+        <button class="button ghost full remote-only" data-command="TRACE" type="button" disabled>读取快照</button>
+        <div class="data-grid four trace-grid">
           <div><small>左 CPS</small><strong id="leftCpsValue">--</strong></div>
           <div><small>右 CPS</small><strong id="rightCpsValue">--</strong></div>
           <div><small>左目标</small><strong id="leftTargetValue">--</strong></div>
@@ -86,9 +96,7 @@
           <div><small>比例误差</small><strong id="straightErrorValue">--</strong></div>
           <div><small>修正 CPS</small><strong id="straightTrimValue">--</strong></div>
         </div>
-      </section>
-
-      <button class="disabled-feature" type="button" disabled>XY 摇杆 · 待启用</button>
+      </details>
     </section>
 
     <section class="tab-panel" id="sensorTab" data-panel="sensor" hidden>
@@ -128,15 +136,21 @@
         </div>
 
         <details class="parameter-group" open>
-          <summary>双轮速度</summary>
+          <summary>速度与转弯</summary>
           <div class="parameter-grid">
-            <label>左目标 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>右目标 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>前进右 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>倒车左 CPS<input class="param-input requires-connection" data-param="TARGET_REV_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>倒车右 CPS<input class="param-input requires-connection" data-param="TARGET_REV_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>转弯 CPS<input class="param-input requires-connection" data-param="TURN_CPS" type="number" min="0" max="8000" value="3000" disabled></label>
+            <label>左 90° count<input class="param-input requires-connection" data-param="TURN90_L_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
+            <label>右 90° count<input class="param-input requires-connection" data-param="TURN90_R_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
             <label>前馈 PWM<input class="param-input requires-connection" data-param="SPEED_FF_PCT" type="number" min="0" max="100" value="60" disabled></label>
             <label>最大 PWM<input class="param-input requires-connection" data-param="SPEED_MAX_PCT" type="number" min="0" max="100" value="80" disabled></label>
             <label>Kp ×10000<input class="param-input requires-connection" data-param="SPEED_KP_X10000" type="number" min="0" max="1000" value="50" disabled></label>
             <label>Ki ×10000<input class="param-input requires-connection" data-param="SPEED_KI_X10000" type="number" min="0" max="1000" value="40" disabled></label>
           </div>
+          <p class="group-hint">摇杆 100% = 对应方向的目标 CPS；最大 PWM 只是闭环输出上限。</p>
         </details>
 
         <details class="parameter-group">
@@ -178,6 +192,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260829-joystick"></script>
 </body>
 </html>

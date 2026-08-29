@@ -11,8 +11,10 @@ const ui = {
   deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
-  leftPwm: $("leftPwm"), rightPwm: $("rightPwm"),
-  leftPwmValue: $("leftPwmValue"), rightPwmValue: $("rightPwmValue"), sendPwmButton: $("sendPwmButton"),
+  joystickPad: $("joystickPad"), joystickKnob: $("joystickKnob"), joystickValue: $("joystickValue"),
+  turn90Status: $("turn90Status"), calibrateLeftButton: $("calibrateLeftButton"),
+  calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
+  turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
   leftCpsValue: $("leftCpsValue"), rightCpsValue: $("rightCpsValue"),
   leftTargetValue: $("leftTargetValue"), rightTargetValue: $("rightTargetValue"),
   leftMotorPwmValue: $("leftMotorPwmValue"), rightMotorPwmValue: $("rightMotorPwmValue"),
@@ -49,6 +51,14 @@ let intentionalDisconnect = false;
 let sampleTimer = null;
 let recording = false;
 let sampleStartedAt = null;
+let joystickPointerId = null;
+let joystickX = 0;
+let joystickY = 0;
+let joystickTimer = null;
+let joystickLastSentAt = 0;
+let joystickLastCommand = "";
+let calibrationDirection = null;
+let calibrationSuggestion = null;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -104,6 +114,71 @@ function selectTab(name) {
   });
 }
 
+function drawJoystick(x, y) {
+  joystickX = x;
+  joystickY = y;
+  ui.joystickValue.textContent = `X ${x} · Y ${y}`;
+  ui.joystickKnob.style.left = `${50 + x * 0.36}%`;
+  ui.joystickKnob.style.top = `${50 - y * 0.36}%`;
+}
+
+function queueJoystick(x, y, force = false) {
+  drawJoystick(x, y);
+  if (!state.connected || state.mode !== "remote") return;
+
+  const command = `JOY ${x} ${y}`;
+  const now = performance.now();
+  const wait = 80 - (now - joystickLastSentAt);
+  const transmit = () => {
+    joystickTimer = null;
+    if (!force && command === joystickLastCommand) return;
+    joystickLastCommand = command;
+    joystickLastSentAt = performance.now();
+    sendCommand(command);
+  };
+
+  if (joystickTimer) clearTimeout(joystickTimer);
+  if (force || wait <= 0) transmit();
+  else joystickTimer = setTimeout(transmit, wait);
+}
+
+function centerJoystick(sendStop = false) {
+  joystickPointerId = null;
+  if (joystickTimer) clearTimeout(joystickTimer);
+  joystickTimer = null;
+  drawJoystick(0, 0);
+  if (sendStop && state.connected && state.mode === "remote") {
+    joystickLastCommand = "";
+    queueJoystick(0, 0, true);
+    setMotion("stop");
+  }
+}
+
+function joystickFromPointer(event) {
+  const rect = ui.joystickPad.getBoundingClientRect();
+  const radius = Math.max(1, Math.min(rect.width, rect.height) * 0.36);
+  let dx = event.clientX - (rect.left + rect.width / 2);
+  let dy = event.clientY - (rect.top + rect.height / 2);
+  const distance = Math.hypot(dx, dy);
+  if (distance > radius) {
+    dx = dx * radius / distance;
+    dy = dy * radius / distance;
+  }
+  let x = Math.round(dx / radius * 100);
+  let y = Math.round(-dy / radius * 100);
+  if (Math.abs(x) < 12) x = 0;
+  if (Math.abs(y) < 12) y = 0;
+  queueJoystick(x, y);
+}
+
+function updateTurn90Status() {
+  const left = knownParams.TURN90_L_COUNT || 0;
+  const right = knownParams.TURN90_R_COUNT || 0;
+  if (left && right) ui.turn90Status.textContent = `左 ${left} · 右 ${right}`;
+  else if (left || right) ui.turn90Status.textContent = left ? `左 ${left} · 右未标定` : `左未标定 · 右 ${right}`;
+  else ui.turn90Status.textContent = "未标定";
+}
+
 function setMotion(motion) {
   state.motion = motion;
   ui.motionValue.textContent = motion.toUpperCase();
@@ -111,7 +186,11 @@ function setMotion(motion) {
 
 function setMode(mode) {
   state.mode = mode;
-  if (mode !== "remote") setMotion("stop");
+  joystickLastCommand = "";
+  if (mode !== "remote") {
+    setMotion("stop");
+    centerJoystick(false);
+  }
   updateAvailability();
 }
 
@@ -127,6 +206,7 @@ function updateAvailability() {
   });
 
   ui.modeValue.textContent = state.mode.toUpperCase();
+  ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
   ui.remoteLock.textContent = remoteReady ? "已就绪" : "需进入遥控模式";
   ui.sensorLock.textContent = sensorReady ? "已运行" : "需进入传感模式";
 }
@@ -140,6 +220,11 @@ function setConnected(connected) {
   if (!connected) {
     state.mode = "standby";
     state.motion = "stop";
+    joystickLastCommand = "";
+    calibrationDirection = null;
+    calibrationSuggestion = null;
+    ui.turnCalibrationResult.textContent = "选择方向，看到 90° 时停车";
+    centerJoystick(false);
     stopSampling();
   }
   updateAvailability();
@@ -258,8 +343,12 @@ function showDistance(value) {
 function processLine(line) {
   const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
   if (modeMatch) setMode(modeMatch[1].toLowerCase());
+  if (/^OK STOPPED MODE\b/i.test(line)) {
+    setMotion("stop");
+    centerJoystick(false);
+  }
 
-  const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|PWM)\b/i);
+  const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|JOYSTICK|TURN90_LEFT|TURN90_RIGHT)\b/i);
   if (motionMatch) setMotion(motionMatch[1].toLowerCase());
 
   const trace = line.match(/^TRACE M=(\w+) L=([+-]?\d+) R=([+-]?\d+) TL=([+-]?\d+) TR=([+-]?\d+) PL=([+-]?\d+) PR=([+-]?\d+) E=([+-]?\d+) C=([+-]?\d+) V=(\d+)$/i);
@@ -309,21 +398,23 @@ function processLine(line) {
     ui.rightCpsValue.textContent = telemetry.rightCps;
   }
 
+  const counts = line.match(/^ENC COUNT L=([+-]?\d+) R=([+-]?\d+)$/i);
+  if (counts && calibrationDirection) {
+    const average = Math.round((Math.abs(Number(counts[1])) + Math.abs(Number(counts[2]))) / 2);
+    const key = calibrationDirection === "left" ? "TURN90_L_COUNT" : "TURN90_R_COUNT";
+    calibrationSuggestion = { key, value: average, direction: calibrationDirection };
+    paramInputs.get(key).value = average;
+    ui.turnCalibrationResult.textContent = `${calibrationDirection === "left" ? "左转" : "右转"}建议 ${average} count`;
+    ui.saveTurnCalibrationButton.disabled = average === 0;
+    ui.turn90Status.textContent = "待保存";
+  }
+
   const straight = line.match(/STRAIGHT ERR=([+-]?\d+) TRIM=([+-]?\d+) CPS/i);
   if (straight) {
     telemetry.error = Number(straight[1]);
     telemetry.trim = Number(straight[2]);
     ui.straightErrorValue.textContent = telemetry.error;
     ui.straightTrimValue.textContent = telemetry.trim;
-  }
-
-  const pwm = line.match(/^PWM L=(\d+) R=(\d+)$/i);
-  if (pwm) {
-    setMotion("pwm");
-    telemetry.pwmLeft = Number(pwm[1]);
-    telemetry.pwmRight = Number(pwm[2]);
-    ui.leftMotorPwmValue.textContent = telemetry.pwmLeft;
-    ui.rightMotorPwmValue.textContent = telemetry.pwmRight;
   }
 
   const motor = line.match(/MOTOR (LF|LB|RF|RB)_PWM=(\d+)/i);
@@ -336,6 +427,7 @@ function processLine(line) {
   if (paramInputs.has(param?.[1])) {
     knownParams[param[1]] = Number(param[2]);
     paramInputs.get(param[1]).value = param[2];
+    if (param[1] === "TURN90_L_COUNT" || param[1] === "TURN90_R_COUNT") updateTurn90Status();
   }
   if (/^PENDING=YES$/i.test(line)) ui.tuningStatus.textContent = "有暂存";
   if (/^PENDING=NO$/i.test(line)) ui.tuningStatus.textContent = "已同步";
@@ -344,20 +436,61 @@ function processLine(line) {
     ui.tuningStatus.textContent = "已读取";
   }
   if (/^OK SAVED TO FLASH$/i.test(line)) ui.tuningStatus.textContent = "已保存";
+  if (/^OK TURN90 DONE$/i.test(line)) {
+    setMotion("stop");
+    ui.turn90Status.textContent = "转弯完成";
+  }
+  if (/^ERR TURN90 NOT CALIBRATED$/i.test(line)) {
+    ui.turn90Status.textContent = "请先标定";
+    setMotion("stop");
+    centerJoystick(false);
+  }
   if (/^ERR\b/i.test(line)) setMessage(line, true);
 
   addLog(line, /^ERR\b/i.test(line) ? "error" : "rx");
 }
 
-function updatePwmReadout() {
-  ui.leftPwmValue.textContent = `${ui.leftPwm.value}%`;
-  ui.rightPwmValue.textContent = `${ui.rightPwm.value}%`;
-  ui.sendPwmButton.textContent = `发送 ${ui.leftPwm.value} / ${ui.rightPwm.value}`;
-}
-
 function updateServoReadout() {
   ui.servoAngleValue.textContent = `${ui.servoAngle.value}°`;
   ui.sendServoButton.textContent = `转到 ${ui.servoAngle.value}°`;
+}
+
+async function startTurnCalibration(direction) {
+  calibrationDirection = direction;
+  calibrationSuggestion = null;
+  ui.saveTurnCalibrationButton.disabled = true;
+  ui.turnCalibrationResult.textContent = `${direction === "left" ? "左转" : "右转"}中；到 90° 就停车`;
+  await sendCommand("STOP");
+  await delay(120);
+  await sendCommand("ENC RESET");
+  await delay(120);
+  await sendCommand(direction === "left" ? "LEFT" : "RIGHT");
+  setMotion(direction);
+}
+
+async function finishTurnCalibration() {
+  if (!calibrationDirection) {
+    setMessage("请先选择测左转或测右转", true);
+    return;
+  }
+  await sendCommand("STOP");
+  setMotion("stop");
+  centerJoystick(false);
+  await delay(140);
+  ui.turnCalibrationResult.textContent = "正在读取编码器…";
+  await sendCommand("ENC");
+}
+
+async function saveTurnCalibration() {
+  if (!calibrationSuggestion) return;
+  const { key, value } = calibrationSuggestion;
+  if (!(await sendCommand(`SET ${key} ${value}`))) return;
+  await delay(140);
+  if (!(await sendCommand("APPLY"))) return;
+  ui.turnCalibrationResult.textContent = `已提交 ${value} count`;
+  ui.saveTurnCalibrationButton.disabled = true;
+  calibrationDirection = null;
+  calibrationSuggestion = null;
 }
 
 function changedParameterEntries() {
@@ -464,15 +597,36 @@ document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {
 document.querySelectorAll("button[data-command]:not([data-mode])").forEach((button) => {
   button.addEventListener("click", async () => {
     if (!(await sendCommand(button.dataset.command))) return;
-    const motions = { FORWARD: "forward", BACKWARD: "backward", LEFT: "left", RIGHT: "right", STOP: "stop" };
+    const motions = { FORWARD: "forward", BACKWARD: "backward", LEFT: "left", RIGHT: "right", STOP: "stop", "TURN90 LEFT": "turn90_left", "TURN90 RIGHT": "turn90_right" };
     if (motions[button.dataset.command]) setMotion(motions[button.dataset.command]);
+    if (button.dataset.command === "STOP") centerJoystick(false);
   });
 });
 
-[ui.leftPwm, ui.rightPwm].forEach((slider) => slider.addEventListener("input", updatePwmReadout));
-ui.sendPwmButton.addEventListener("click", async () => {
-  if (await sendCommand(`PWM ${ui.leftPwm.value} ${ui.rightPwm.value}`)) setMotion("pwm");
+ui.joystickPad.addEventListener("pointerdown", (event) => {
+  if (!state.connected || state.mode !== "remote") return;
+  event.preventDefault();
+  joystickPointerId = event.pointerId;
+  ui.joystickPad.setPointerCapture(event.pointerId);
+  joystickFromPointer(event);
 });
+ui.joystickPad.addEventListener("pointermove", (event) => {
+  if (event.pointerId !== joystickPointerId) return;
+  event.preventDefault();
+  joystickFromPointer(event);
+});
+const releaseJoystick = (event) => {
+  if (event.pointerId !== joystickPointerId) return;
+  event.preventDefault();
+  centerJoystick(true);
+};
+ui.joystickPad.addEventListener("pointerup", releaseJoystick);
+ui.joystickPad.addEventListener("pointercancel", releaseJoystick);
+
+ui.calibrateLeftButton.addEventListener("click", () => startTurnCalibration("left"));
+ui.calibrateRightButton.addEventListener("click", () => startTurnCalibration("right"));
+ui.finishTurnCalibrationButton.addEventListener("click", finishTurnCalibration);
+ui.saveTurnCalibrationButton.addEventListener("click", saveTurnCalibration);
 
 ui.servoAngle.addEventListener("input", updateServoReadout);
 ui.sendServoButton.addEventListener("click", () => sendCommand(`SERVO ${ui.servoAngle.value}`));
@@ -519,5 +673,6 @@ ui.clearLogButton.addEventListener("click", () => {
 
 setConnected(false);
 selectTab("remote");
-updatePwmReadout();
+drawJoystick(0, 0);
+updateTurn90Status();
 updateServoReadout();
