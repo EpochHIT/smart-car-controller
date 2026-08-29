@@ -36,8 +36,12 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .card { margin-bottom: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 17px; background: linear-gradient(145deg, rgba(18, 40, 64, .96), rgba(11, 25, 42, .96)); box-shadow: 0 14px 34px rgba(0, 0, 0, .2); }
 .quick-panel { padding: 12px; }
 .connect-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
-.device-filter { min-width: 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: #071321; color: var(--text); font-weight: 750; }
-.device-name { grid-column: 1 / -1; padding: 7px 3px 2px; color: var(--muted); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.connection-label { min-width: 0; display: grid; align-content: center; gap: 2px; padding: 2px 3px; }
+.connection-label strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .82rem; }
+.connection-label small { color: var(--muted); font-size: .65rem; }
+.device-name { grid-column: 1 / 3; padding: 7px 3px 2px; color: var(--muted); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.battery-pill { grid-column: 3; align-self: center; justify-self: end; color: var(--muted); font-size: .7rem; }
+.battery-pill strong { margin-left: 4px; color: var(--cyan); }
 
 .button { min-height: 42px; padding: 9px 13px; border: 1px solid transparent; border-radius: 11px; cursor: pointer; font-weight: 850; }
 .button.primary { background: linear-gradient(135deg, #197fe0, #25bce5); box-shadow: 0 8px 20px rgba(37, 143, 236, .2); }
@@ -54,19 +58,9 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 
 .tab-panel { animation: panel-in .16s ease-out; }
 @keyframes panel-in { from { opacity: .5; transform: translateY(3px); } }
-.status-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
-.status-strip span { padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: rgba(4, 12, 21, .42); color: var(--muted); font-size: .67rem; text-align: center; }
-.status-strip strong { display: block; margin-top: 3px; color: var(--cyan); font: 800 .82rem ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
-
 .section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
 .section-title h2 { margin: 0; font-size: 1rem; }
 .section-title > span { color: var(--cyan); font-size: .68rem; font-weight: 800; }
-.mode-entry-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.mode-entry-card div { min-width: 0; }
-.mode-entry-card strong { display: block; font-size: .94rem; }
-.mode-entry-card small { display: block; margin-top: 5px; color: var(--muted); font-size: .7rem; line-height: 1.4; }
-.mode-entry-button { flex: 0 0 auto; min-width: 96px; }
-.mode-entry-button.selected { border-color: rgba(85, 229, 167, .3); background: rgba(85, 229, 167, .12); box-shadow: none; color: var(--green); }
 
 .joystick-layout { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(120px, .62fr); gap: 16px; align-items: center; }
 .joystick-pad { position: relative; width: min(100%, 280px); aspect-ratio: 1; justify-self: center; padding: 0; overflow: hidden; touch-action: none; border: 1px solid rgba(67, 213, 255, .34); border-radius: 50%; background: radial-gradient(circle at center, rgba(33, 111, 158, .25), rgba(3, 11, 20, .82) 70%); box-shadow: inset 0 0 40px rgba(0, 0, 0, .45), 0 14px 30px rgba(0, 0, 0, .22); cursor: grab; }
@@ -134,6 +128,10 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .calibration-strip span { color: var(--orange); font-weight: 850; }
 .calibration-strip span.ready { color: var(--green); }
 .calibration-strip strong { color: var(--muted); font-size: .65rem; }
+.orientation-note { margin: 9px 0; padding: 9px 10px; border-left: 3px solid var(--cyan); border-radius: 7px; background: rgba(46, 229, 255, .06); color: var(--muted); font-size: .72rem; line-height: 1.65; }
+.orientation-note strong { color: #d9e6f1; }
+.compact-params { margin-top: 10px; }
+.obstacle-fold > summary span { color: var(--muted); font-weight: 700; }
 .pid-live { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
 .pid-live span { padding: 8px 4px; border-radius: 8px; background: rgba(3, 11, 20, .42); color: var(--muted); font-size: .65rem; text-align: center; }
 .pid-live strong { display: block; margin-top: 3px; color: var(--cyan); font: 800 .78rem ui-monospace, Consolas, monospace; }
@@ -190,8 +188,6 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
   .joystick-info { grid-template-columns: 1fr auto; align-items: center; }
   .joystick-info small { display: none; }
   .sensor-hero { grid-template-columns: 1fr; }
-  .mode-entry-card { align-items: stretch; flex-direction: column; }
-  .mode-entry-button { width: 100%; }
   .button-grid { grid-template-columns: repeat(2, 1fr); }
   .speed-stepper { grid-template-columns: 1fr 1fr; }
   .speed-stepper span { grid-column: 1 / -1; }

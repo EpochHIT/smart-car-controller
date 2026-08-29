@@ -1,14 +1,11 @@
 "use strict";
 
-const SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
-const CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  connectionType: $("connectionType"), deviceNameFilter: $("deviceNameFilter"),
   deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
@@ -61,15 +58,11 @@ const telemetry = {
 const knownParams = {};
 const sampleRecords = [];
 let paramsLoaded = false;
-let bluetoothDevice = null;
-let lastGrantedBleDevice = null;
-let uartCharacteristic = null;
 let serialPort = null;
 let lastGrantedSerialPort = null;
 let serialReader = null;
 let serialWriter = null;
 let serialReadTask = null;
-let activeTransport = null;
 let receiveBuffer = "";
 let writeQueue = Promise.resolve();
 let intentionalDisconnect = false;
@@ -187,6 +180,16 @@ function selectTab(name) {
     panel.hidden = !active;
   });
   if (name === "logs") updateLogProfile();
+}
+
+async function activateMode(mode) {
+  if (!state.connected || (mode !== "sensor" && mode !== "remote")) return false;
+  if (state.mode === mode) return true;
+  const command = mode === "sensor" ? "MODE SENSOR" : "MODE REMOTE";
+  if (!(await sendCommand(command))) return false;
+  setMode(mode);
+  if (mode === "sensor") await sendCommand("LINE", true);
+  return true;
 }
 
 function drawJoystick(x, y) {
@@ -318,7 +321,7 @@ function startLinePolling() {
   stopLinePolling();
   if (!state.connected || state.mode !== "sensor") return;
   linePollTimer = setInterval(() => {
-    if (state.connected && state.mode === "sensor") sendCommand("LINE");
+    if (state.connected && state.mode === "sensor") sendCommand("LINE", true);
   }, 350);
 }
 
@@ -347,43 +350,24 @@ function updateAvailability() {
   document.querySelectorAll(".requires-connection").forEach((element) => { element.disabled = !state.connected; });
   document.querySelectorAll(".remote-only").forEach((element) => { element.disabled = !remoteReady; });
   document.querySelectorAll(".sensor-only").forEach((element) => { element.disabled = !sensorReady; });
-  document.querySelectorAll(".mode-entry-button[data-mode]").forEach((button) => {
-    button.classList.toggle("selected", button.dataset.mode === state.mode);
-    button.textContent = button.dataset.mode === state.mode ? "当前模式" :
-                         button.dataset.mode === "remote" ? "进入遥控" : "进入巡线";
-  });
-
   ui.modeValue.textContent = state.mode.toUpperCase();
   ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
-  ui.remoteLock.textContent = remoteReady ? "已就绪" : "需进入遥控模式";
-  ui.sensorLock.textContent = sensorReady ? "传感已就绪" : "需进入传感模式";
+  ui.remoteLock.textContent = remoteReady ? "遥控已就绪" : state.connected ? "正在切换…" : "连接后可用";
+  ui.sensorLock.textContent = sensorReady ? "传感器读取中" : state.connected ? "正在切换…" : "连接后自动就绪";
   ui.trackStartButton.disabled = !sensorReady || state.trackRunning || !state.lineCalibrated || state.lineCalibrating;
   ui.trackStopButton.disabled = !sensorReady || !state.trackRunning;
   ui.lineCalibrationButton.disabled = !sensorReady || state.trackRunning;
   updateLogProfile();
 }
 
-function selectedConnectionType() {
-  return ui.connectionType.value;
-}
-
-function selectedLastDevice() {
-  return selectedConnectionType() === "serial" ? lastGrantedSerialPort : lastGrantedBleDevice;
-}
-
 function lastDeviceLabel() {
-  if (selectedConnectionType() === "serial") return lastGrantedSerialPort ? "上次：已授权的 SPP 设备" : "--";
-  return lastGrantedBleDevice ? `上次：${lastGrantedBleDevice.name || "未命名设备"}` : "--";
+  return lastGrantedSerialPort ? "已记住上次授权的蓝牙设备" : "--";
 }
 
 function updateConnectionControls() {
-  const serialSelected = selectedConnectionType() === "serial";
-  ui.deviceNameFilter.hidden = serialSelected;
-  ui.connectionType.disabled = state.connected;
-  ui.deviceNameFilter.disabled = state.connected;
-  ui.connectButton.textContent = serialSelected ? "连接" : "搜索设备";
-  ui.disconnectButton.disabled = !state.connected && !selectedLastDevice();
-  ui.disconnectButton.textContent = state.connected ? "断开" : "上次设备";
+  ui.connectButton.disabled = state.connected;
+  ui.disconnectButton.disabled = !state.connected && !lastGrantedSerialPort;
+  ui.disconnectButton.textContent = state.connected ? "断开" : "重连";
   if (!state.connected) ui.deviceName.textContent = lastDeviceLabel();
 }
 
@@ -438,49 +422,26 @@ async function readSerialPort(port) {
         try { serialWriter.releaseLock(); } catch (_) { /* 已释放 */ }
       }
       serialWriter = null;
-      activeTransport = null;
       handleDisconnected();
     }
   }
 }
 
 async function connectSerialPort(port) {
-  setMessage("正在连接 JDY-31 串口…");
+  setMessage("正在连接蓝牙串口…");
   await port.open({ baudRate: 9600, bufferSize: 1024 });
   serialPort = port;
   serialWriter = port.writable.getWriter();
-  activeTransport = "serial";
   lastGrantedSerialPort = port;
   intentionalDisconnect = false;
-  ui.deviceName.textContent = "JDY-31 · SPP";
+  ui.deviceName.textContent = "SPP 蓝牙已连接";
   setConnected(true);
-  addLog("CONNECTED JDY-31 SPP");
+  addLog("CONNECTED SPP");
   serialReadTask = readSerialPort(port);
   await sendCommand("CHECK");
-  setMessage("串口蓝牙连接成功");
-}
-
-async function connectBleDevice(device) {
-  bluetoothDevice = device;
-  bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
-  setMessage("正在连接 BLE…");
-  const server = await bluetoothDevice.gatt.connect();
-  const service = await server.getPrimaryService(SERVICE_UUID);
-  uartCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
-  if (uartCharacteristic.properties.notify || uartCharacteristic.properties.indicate) {
-    await uartCharacteristic.startNotifications();
-    uartCharacteristic.addEventListener("characteristicvaluechanged", handleNotification);
-  }
-
-  activeTransport = "ble";
-  lastGrantedBleDevice = device;
-  localStorage.setItem("smartCarDeviceId", device.id);
-  intentionalDisconnect = false;
-  ui.deviceName.textContent = bluetoothDevice.name || "未命名设备";
-  setConnected(true);
-  addLog(`CONNECTED ${bluetoothDevice.name || "UNKNOWN"}`);
-  await sendCommand("CHECK");
-  setMessage("连接成功");
+  await activateMode("sensor");
+  selectTab("sensor");
+  setMessage("连接成功：巡线待机，电机未启动");
 }
 
 async function connectSerial() {
@@ -502,60 +463,25 @@ async function connectSerial() {
     }
     serialPort = null;
     serialWriter = null;
-    activeTransport = null;
     setConnected(false);
     setMessage(`串口连接失败：${error.message}`, true);
     addLog(error.message, "error");
   }
 }
 
-async function connectBluetooth() {
-  if (!navigator.bluetooth) {
-    setMessage("浏览器不支持 BLE 网页连接", true);
-    return;
-  }
-
-  try {
-    const namePrefix = ui.deviceNameFilter.value.trim();
-    const requestOptions = { optionalServices: [SERVICE_UUID] };
-    if (namePrefix) requestOptions.filters = [{ namePrefix }];
-    else requestOptions.acceptAllDevices = true;
-    localStorage.setItem("smartCarDevicePrefix", namePrefix);
-    setMessage(namePrefix ? `只显示名称以 ${namePrefix} 开头的设备…` : "显示附近全部蓝牙设备…");
-    const selectedDevice = await navigator.bluetooth.requestDevice(requestOptions);
-    await connectBleDevice(selectedDevice);
-  } catch (error) {
-    if (error.name === "NotFoundError") {
-      setMessage("未选择设备；可修改前缀或留空重试");
-      return;
-    }
-    uartCharacteristic = null;
-    setConnected(false);
-    setMessage(`连接失败：${error.message}`, true);
-    addLog(error.message, "error");
-  }
-}
-
 function connectSelectedDevice() {
-  return selectedConnectionType() === "serial" ? connectSerial() : connectBluetooth();
+  return connectSerial();
 }
 
 async function connectLastDevice() {
-  const device = selectedLastDevice();
+  const device = lastGrantedSerialPort;
   if (!device) return;
   try {
-    if (selectedConnectionType() === "serial") {
-      setMessage("正在连接上次授权的 SPP 设备…");
-      await connectSerialPort(device);
-    } else {
-      setMessage(`连接上次设备：${device.name || "未命名设备"}…`);
-      await connectBleDevice(device);
-    }
+    setMessage("正在连接上次授权的蓝牙设备…");
+    await connectSerialPort(device);
   } catch (error) {
-    uartCharacteristic = null;
     serialPort = null;
     serialWriter = null;
-    activeTransport = null;
     setConnected(false);
     setMessage(`上次设备连接失败：${error.message}`, true);
     addLog(error.message, "error");
@@ -571,47 +497,30 @@ async function loadGrantedDevices() {
     } catch (_) { /* 使用手动连接 */ }
   }
 
-  if (navigator.bluetooth?.getDevices) {
-    try {
-      const devices = await navigator.bluetooth.getDevices();
-      const savedId = localStorage.getItem("smartCarDeviceId");
-      lastGrantedBleDevice = devices.find((device) => device.id === savedId) ||
-                             (devices.length === 1 ? devices[0] : null);
-    } catch (_) { /* 使用手动连接 */ }
-  }
-
   updateConnectionControls();
-  if (selectedLastDevice()) setMessage("可直接连接上次设备，或重新选择");
+  if (lastGrantedSerialPort) setMessage("可快速重连上次设备，也可以重新选择");
 }
 
 async function disconnectCurrentDevice() {
   if (!state.connected) return;
   intentionalDisconnect = true;
   await sendCommand("STOP");
-  if (activeTransport === "serial") {
-    const port = serialPort;
-    serialPort = null;
-    try { await serialReader?.cancel(); } catch (_) { /* 已断开 */ }
-    try { await serialReadTask; } catch (_) { /* 读取循环已结束 */ }
-    if (serialWriter) {
-      try { serialWriter.releaseLock(); } catch (_) { /* 已释放 */ }
-    }
-    serialWriter = null;
-    serialReadTask = null;
-    activeTransport = null;
-    try { await port?.close(); } catch (_) { /* 设备已经关闭 */ }
-    handleDisconnected();
-    return;
+  const port = serialPort;
+  serialPort = null;
+  try { await serialReader?.cancel(); } catch (_) { /* 已断开 */ }
+  try { await serialReadTask; } catch (_) { /* 读取循环已结束 */ }
+  if (serialWriter) {
+    try { serialWriter.releaseLock(); } catch (_) { /* 已释放 */ }
   }
-  bluetoothDevice?.gatt?.disconnect();
+  serialWriter = null;
+  serialReadTask = null;
+  try { await port?.close(); } catch (_) { /* 设备已经关闭 */ }
+  handleDisconnected();
 }
 
 function handleDisconnected() {
   const planned = intentionalDisconnect;
   intentionalDisconnect = false;
-  uartCharacteristic = null;
-  bluetoothDevice = null;
-  activeTransport = null;
   receiveBuffer = "";
   setConnected(false);
   ui.deviceName.textContent = lastDeviceLabel();
@@ -619,34 +528,27 @@ function handleDisconnected() {
   addLog(planned ? "DISCONNECTED" : "UNEXPECTED DISCONNECT", planned ? "rx" : "error");
 }
 
-function sendCommand(command) {
+function sendCommand(command, quiet = false) {
   const normalized = command.trim().toUpperCase();
-  const operation = () => writeCommand(normalized);
+  const operation = () => writeCommand(normalized, quiet);
   const result = writeQueue.then(operation, operation);
   writeQueue = result.then(() => undefined, () => undefined);
   return result;
 }
 
-async function writeCommand(command) {
+async function writeCommand(command, quiet = false) {
   if (!state.connected) {
     setMessage("请先连接蓝牙", true);
     return false;
   }
   try {
     const data = encoder.encode(`${command}\n`);
-    if (activeTransport === "serial" && serialWriter) {
-      await serialWriter.write(data);
-    } else if (activeTransport === "ble" && uartCharacteristic?.properties.write && uartCharacteristic.writeValueWithResponse) {
-      await uartCharacteristic.writeValueWithResponse(data);
-    } else if (activeTransport === "ble" && uartCharacteristic?.properties.writeWithoutResponse && uartCharacteristic.writeValueWithoutResponse) {
-      await uartCharacteristic.writeValueWithoutResponse(data);
-    } else if (activeTransport === "ble" && uartCharacteristic?.writeValue) {
-      await uartCharacteristic.writeValue(data);
-    } else {
-      throw new Error("当前连接不可写");
+    if (!serialWriter) throw new Error("蓝牙串口不可写");
+    await serialWriter.write(data);
+    if (!quiet) {
+      addLog(command, "tx");
+      setMessage(`${command} 已发送`);
     }
-    addLog(command, "tx");
-    setMessage(`${command} 已发送`);
     return true;
   } catch (error) {
     setMessage(`发送失败：${error.message}`, true);
@@ -655,17 +557,23 @@ async function writeCommand(command) {
   }
 }
 
-function handleNotification(event) {
-  receiveBytes(event.target.value);
-}
-
 function showDistance(value) {
   return value === "OUT" || value === null ? "--" : String(value);
 }
 
 function showLineSensor(raw, percent) {
-  if (raw === null) return "--";
-  return state.lineCalibrated ? `${raw} · ${percent}%` : `${raw} · 未标定`;
+  if (!Number.isFinite(raw)) return "未收到";
+  if (!state.lineCalibrated) return `${raw} · 未标定`;
+  return Number.isFinite(percent) ? `${raw} · ${percent}%` : `${raw} · 百分比未收到`;
+}
+
+function numberField(fields, ...keys) {
+  for (const key of keys) {
+    if (fields[key] === undefined || fields[key] === "") continue;
+    const value = Number(fields[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function processLine(line) {
@@ -722,51 +630,53 @@ function processLine(line) {
   }
 
   if (line.startsWith("LINE ")) {
-    const fields = Object.fromEntries(line.slice(5).split(/\s+/).map((token) => {
+    const fields = Object.fromEntries(line.slice(5).split(/\s+/).flatMap((token) => {
       const split = token.indexOf("=");
-      return [token.slice(0, split), token.slice(split + 1)];
+      return split > 0 ? [[token.slice(0, split), token.slice(split + 1)]] : [];
     }));
-    setLineCalibrated(fields.CAL === "1");
-    setTrackState((fields.STATE || "LOST").toUpperCase());
-    setAvoidance(fields.AVOID === "ON");
-    state.trackEnd = (fields.END || "NONE").toUpperCase();
+    if (fields.CAL !== undefined) setLineCalibrated(fields.CAL === "1");
+    if (fields.STATE) setTrackState(fields.STATE.toUpperCase());
+    if (fields.AVOID) setAvoidance(fields.AVOID === "ON");
+    if (fields.END) state.trackEnd = fields.END.toUpperCase();
     if (state.trackEnd === "NONE") lastFailureSignature = "";
-    telemetry.trackBase = Number(fields.BASE);
-    telemetry.trackP = Number(fields.P);
-    telemetry.trackI = Number(fields.I);
-    telemetry.trackD = Number(fields.D);
-    telemetry.lineTrim = Number(fields.TRIM);
-    telemetry.lineLeftTrans = Number(fields.LT);
-    telemetry.lineLeftLong = Number(fields.LL);
-    telemetry.lineRightTrans = Number(fields.RT);
-    telemetry.lineRightLong = Number(fields.RL);
-    telemetry.lineLeftTransPct = Number(fields.NLT);
-    telemetry.lineLeftLongPct = Number(fields.NLL);
-    telemetry.lineRightTransPct = Number(fields.NRT);
-    telemetry.lineRightLongPct = Number(fields.NRL);
-    telemetry.lineErrorX100 = Number(fields.ERR_X100);
-    telemetry.trackPeakErrorX100 = Number(fields.PEAK_X100);
-    telemetry.trackPeakP = Number(fields.PKP);
-    telemetry.trackPeakI = Number(fields.PKI);
-    telemetry.trackPeakD = Number(fields.PKD);
-    telemetry.trackPeakTrim = Number(fields.PKTRIM);
+    telemetry.trackBase = numberField(fields, "BASE");
+    telemetry.trackP = numberField(fields, "P");
+    telemetry.trackI = numberField(fields, "I");
+    telemetry.trackD = numberField(fields, "D");
+    telemetry.lineTrim = numberField(fields, "TRIM");
+    telemetry.lineLeftTrans = numberField(fields, "LH", "LT");
+    telemetry.lineLeftLong = numberField(fields, "LV", "LL");
+    telemetry.lineRightTrans = numberField(fields, "RH", "RT");
+    telemetry.lineRightLong = numberField(fields, "RV", "RL");
+    telemetry.lineLeftTransPct = numberField(fields, "NLH", "NLT");
+    telemetry.lineLeftLongPct = numberField(fields, "NLV", "NLL");
+    telemetry.lineRightTransPct = numberField(fields, "NRH", "NRT");
+    telemetry.lineRightLongPct = numberField(fields, "NRV", "NRL");
+    telemetry.lineErrorX100 = numberField(fields, "ERR_X100");
+    telemetry.trackPeakErrorX100 = numberField(fields, "PEAK_X100");
+    telemetry.trackPeakP = numberField(fields, "PKP");
+    telemetry.trackPeakI = numberField(fields, "PKI");
+    telemetry.trackPeakD = numberField(fields, "PKD");
+    telemetry.trackPeakTrim = numberField(fields, "PKTRIM");
     telemetry.trackPeakState = (fields.PEAK_STATE || "LOST").toUpperCase();
-    telemetry.trackPeakMs = Number(fields.PEAK_MS);
-    telemetry.trackPeakPercent = [fields.PKLT, fields.PKLL, fields.PKRT, fields.PKRL].map(Number);
-    telemetry.trackEndMs = Number(fields.END_MS);
-    telemetry.trackEndPercent = [fields.ENLT, fields.ENLL, fields.ENRT, fields.ENRL].map(Number);
-    setTrackRunning(fields.RUN === "1");
+    telemetry.trackPeakMs = numberField(fields, "PEAK_MS");
+    telemetry.trackPeakPercent = ["PKLT", "PKLL", "PKRT", "PKRL"].map((key) => numberField(fields, key));
+    telemetry.trackEndMs = numberField(fields, "END_MS");
+    telemetry.trackEndPercent = ["ENLT", "ENLL", "ENRT", "ENRL"].map((key) => numberField(fields, key));
+    if (fields.RUN !== undefined) setTrackRunning(fields.RUN === "1");
     ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
     ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
     ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
     ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
-    ui.lineErrorValue.textContent = state.lineCalibrated ? `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}` : "仅显示原始 ADC";
-    ui.trackPValue.textContent = telemetry.trackP;
-    ui.trackIValue.textContent = telemetry.trackI;
-    ui.trackDValue.textContent = telemetry.trackD;
-    ui.trackTrimValue.textContent = telemetry.lineTrim;
+    ui.lineErrorValue.textContent = state.lineCalibrated && Number.isFinite(telemetry.lineErrorX100) ?
+      `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}` : "原始 ADC";
+    ui.trackPValue.textContent = telemetry.trackP ?? "--";
+    ui.trackIValue.textContent = telemetry.trackI ?? "--";
+    ui.trackDValue.textContent = telemetry.trackD ?? "--";
+    ui.trackTrimValue.textContent = telemetry.lineTrim ?? "--";
     const stateLabels = { LOST: "丢线", STRAIGHT: "直线", LEFT: "左转", RIGHT: "右转", CROSS: "十字" };
-    ui.trackPeakValue.textContent = state.lineCalibrated ? `${(telemetry.trackPeakErrorX100 / 100).toFixed(2)} · ${stateLabels[telemetry.trackPeakState] || telemetry.trackPeakState} · 输出 ${telemetry.trackPeakTrim}` : "--";
+    ui.trackPeakValue.textContent = state.lineCalibrated && Number.isFinite(telemetry.trackPeakErrorX100) ?
+      `${(telemetry.trackPeakErrorX100 / 100).toFixed(2)} · ${stateLabels[telemetry.trackPeakState] || telemetry.trackPeakState} · 输出 ${telemetry.trackPeakTrim ?? "--"}` : "--";
     const endLabels = { NONE: "--", MANUAL: "手动停止", LOST: "丢线超时", NO_LINE: "启动时无线" };
     ui.trackEndValue.textContent = endLabels[state.trackEnd] || state.trackEnd;
 
@@ -859,7 +769,7 @@ function processLine(line) {
   }
   else if (/^ERR\b/i.test(line)) setMessage(line, true);
 
-  addLog(line, /^ERR\b/i.test(line) ? "error" : "rx");
+  if (!line.startsWith("LINE ")) addLog(line, /^ERR\b/i.test(line) ? "error" : "rx");
 }
 
 function updateServoReadout() {
@@ -920,13 +830,13 @@ function changedParameterEntries() {
     return null;
   }
   if (valueOf("TRACK_DETECT_PCT") > valueOf("TRACK_BRANCH_PCT")) {
-    setMessage("有线阈值不能高于分支阈值", true);
+    setMessage("有线阈值不能高于转弯/十字阈值", true);
     return null;
   }
   const calibrationPairs = [
     ["MIN_L_TRANS", "MAX_L_TRANS"], ["MIN_L_LONG", "MAX_L_LONG"],
     ["MIN_R_TRANS", "MAX_R_TRANS"], ["MIN_R_LONG", "MAX_R_LONG"]
-  ];
+  ].filter(([minimumKey, maximumKey]) => paramInputs.has(minimumKey) && paramInputs.has(maximumKey));
   for (const [minimumKey, maximumKey] of calibrationPairs) {
     if (valueOf(minimumKey) >= valueOf(maximumKey)) {
       setMessage("每路传感器的最小值必须低于最大值", true);
@@ -1033,27 +943,11 @@ function exportCsv() {
 
 ui.connectButton.addEventListener("click", connectSelectedDevice);
 ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectCurrentDevice() : connectLastDevice());
-ui.connectionType.addEventListener("change", () => {
-  updateConnectionControls();
-  if (selectedConnectionType() === "serial") {
-    setMessage(navigator.serial ? "选择已配对的 JDY-31 / HC-05" : "Android 请使用 Chrome 137 或更高版本", !navigator.serial);
-  } else {
-    setMessage("可按 BLE 设备名前缀筛选");
-  }
-});
-document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
-
-document.querySelectorAll(".mode-entry-button[data-mode]").forEach((button) => {
-  button.addEventListener("click", async () => {
-    if (!(await sendCommand(button.dataset.command))) return;
-    setMode(button.dataset.mode);
-    if (button.dataset.mode === "remote" || button.dataset.mode === "sensor") selectTab(button.dataset.mode);
-    if (button.dataset.mode === "sensor") {
-      await delay(120);
-      await sendCommand("SENSOR");
-    }
-  });
-});
+document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", async () => {
+  const tab = button.dataset.tab;
+  selectTab(tab);
+  if (tab === "sensor" || tab === "remote") await activateMode(tab);
+}));
 
 document.querySelectorAll("button[data-command]:not([data-mode])").forEach((button) => {
   button.addEventListener("click", async () => {
@@ -1128,13 +1022,14 @@ ui.lineCalibrationButton.addEventListener("click", async () => {
 
 ui.copySensorButton.addEventListener("click", async () => {
   const values = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong];
-  if (values.some((value) => value === null)) {
-    setMessage("请先读取一次四路数据", true);
+  if (values.some((value) => !Number.isFinite(value))) {
+    setMessage("四路数据还没有全部收到，请重新读取", true);
     return;
   }
-  const percent = state.lineCalibrated ?
+  const percentages = [telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightTransPct, telemetry.lineRightLongPct];
+  const percent = state.lineCalibrated && percentages.every(Number.isFinite) ?
     `；百分比 ${telemetry.lineLeftTransPct}/${telemetry.lineLeftLongPct}/${telemetry.lineRightTransPct}/${telemetry.lineRightLongPct}` :
-    "；百分比未标定";
+    `；${state.lineCalibrated ? "百分比数据不完整" : "百分比未标定"}`;
   const text = `左横 ${values[0]}，左竖 ${values[1]}，右横 ${values[2]}，右竖 ${values[3]}${percent}`;
   try {
     await navigator.clipboard.writeText(text);
@@ -1177,7 +1072,6 @@ ui.clearLogButton.addEventListener("click", () => {
   updateLogProfile();
 });
 
-ui.deviceNameFilter.value = localStorage.getItem("smartCarDevicePrefix") ?? "JDY";
 setConnected(false);
 loadGrantedDevices();
 selectTab("sensor");
