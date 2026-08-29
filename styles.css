@@ -144,6 +144,8 @@ h2 { margin: 0; font-size: 1.16rem; }
 }
 .speed-presets button.selected, .mode-button.selected { color: white; border-color: var(--blue); background: rgba(22,135,255,.23); box-shadow: inset 0 0 0 1px rgba(22,135,255,.22); }
 .mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mode-row + .mode-row { margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(41,67,95,.55); }
+.mode-label { margin: 0 0 8px; color: var(--muted); font-size: .82rem; font-weight: 750; }
 .mode-button { padding: 0 10px; }
 .mode-button b { color: var(--blue); }
 

@@ -13,6 +13,7 @@ const ui = {
   obstacleState: $("obstacleState"), obstacleChinese: $("obstacleChinese"), obstacleValue: $("obstacleValue"),
   speedSlider: $("speedSlider"), speedReadout: $("speedReadout"), speedPresets: $("speedPresets"),
   sensorOnButton: $("sensorOnButton"), sensorOffButton: $("sensorOffButton"),
+  obstacleOnButton: $("obstacleOnButton"), obstacleOffButton: $("obstacleOffButton"),
   l1Value: $("l1Value"), l2Value: $("l2Value"), r1Value: $("r1Value"), r2Value: $("r2Value"),
   errorValue: $("errorValue"), mlValue: $("mlValue"), mrValue: $("mrValue"),
   aliveIndicator: $("aliveIndicator"), logWindow: $("logWindow"), clearLogButton: $("clearLogButton")
@@ -166,8 +167,12 @@ function processLine(line) {
 
   const distanceMatch = line.match(/DIST\s*=\s*(OUT|\d+)\s*(?:CM)?/i);
   const obstacleMatch = line.match(/(?:OBSTACLE\s*=\s*|OBSTACLE\s+)(CLEAR|SLOW|STOP)/i);
+  const avoidanceMatch = line.match(/(?:AVOID\s*=\s*|OBSTACLE\s+)(ON|OFF)\b/i);
+  const sensorModeMatch = line.match(/SENSOR\s+(ON|OFF)\b/i);
   if (distanceMatch) updateDistance(distanceMatch[1]);
   if (obstacleMatch) updateObstacle(obstacleMatch[1].toUpperCase());
+  if (avoidanceMatch) selectMode(ui.obstacleOnButton, ui.obstacleOffButton, avoidanceMatch[1].toUpperCase() === "ON");
+  if (sensorModeMatch) selectMode(ui.sensorOnButton, ui.sensorOffButton, sensorModeMatch[1].toUpperCase() === "ON");
 
   if (/CAR\s+ALIVE/i.test(line)) markAlive();
 }
@@ -212,6 +217,11 @@ function selectSpeed(speed) {
   });
 }
 
+function selectMode(onButton, offButton, enabled) {
+  onButton.classList.toggle("selected", enabled);
+  offButton.classList.toggle("selected", !enabled);
+}
+
 ui.connectButton.addEventListener("click", connectBluetooth);
 ui.disconnectButton.addEventListener("click", disconnectBluetooth);
 
@@ -220,8 +230,10 @@ document.querySelectorAll(".control-button").forEach((button) => {
     const sent = await sendCommand(button.dataset.command);
     if (!sent) return;
     if (button === ui.sensorOnButton || button === ui.sensorOffButton) {
-      ui.sensorOnButton.classList.toggle("selected", button === ui.sensorOnButton);
-      ui.sensorOffButton.classList.toggle("selected", button === ui.sensorOffButton);
+      selectMode(ui.sensorOnButton, ui.sensorOffButton, button === ui.sensorOnButton);
+    }
+    if (button === ui.obstacleOnButton || button === ui.obstacleOffButton) {
+      selectMode(ui.obstacleOnButton, ui.obstacleOffButton, button === ui.obstacleOnButton);
     }
   });
 });
@@ -241,3 +253,5 @@ ui.clearLogButton.addEventListener("click", () => {
 
 setConnected(false);
 selectSpeed(3);
+selectMode(ui.sensorOnButton, ui.sensorOffButton, false);
+selectMode(ui.obstacleOnButton, ui.obstacleOffButton, true);

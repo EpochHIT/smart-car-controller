@@ -94,9 +94,19 @@
       <div class="section-heading compact">
         <h2 id="sensorModeTitle">传感器模式</h2>
       </div>
-      <div class="mode-switch">
-        <button class="mode-button selected control-button" id="sensorOnButton" data-command="T" type="button" disabled>接入传感器 <b>T</b></button>
-        <button class="mode-button control-button" id="sensorOffButton" data-command="N" type="button" disabled>关闭传感器 <b>N</b></button>
+      <div class="mode-row">
+        <p class="mode-label">循迹传感器</p>
+        <div class="mode-switch">
+          <button class="mode-button control-button" id="sensorOnButton" data-command="T" type="button" disabled>接入传感器 <b>T</b></button>
+          <button class="mode-button selected control-button" id="sensorOffButton" data-command="N" type="button" disabled>关闭传感器 <b>N</b></button>
+        </div>
+      </div>
+      <div class="mode-row">
+        <p class="mode-label">超声波避障</p>
+        <div class="mode-switch">
+          <button class="mode-button selected control-button" id="obstacleOnButton" data-command="O" type="button" disabled>开启避障 <b>O</b></button>
+          <button class="mode-button control-button" id="obstacleOffButton" data-command="X" type="button" disabled>关闭避障 <b>X</b></button>
+        </div>
       </div>
     </section>
 
