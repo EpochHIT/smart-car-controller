@@ -76,6 +76,10 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .joystick-info { display: grid; gap: 10px; align-content: center; }
 .joystick-info strong { color: var(--cyan); font: 900 1.05rem ui-monospace, Consolas, monospace; white-space: nowrap; }
 .joystick-info small { color: var(--muted); font-size: .72rem; }
+.gear-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line); color: var(--muted); font-size: .75rem; font-weight: 800; }
+.gear-switch { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; width: min(230px, 62%); padding: 3px; border-radius: 10px; background: rgba(3, 10, 18, .55); }
+.gear-choice { min-height: 34px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 850; }
+.gear-choice.selected { border-color: rgba(67, 213, 255, .35); background: rgba(67, 213, 255, .13); color: var(--cyan); }
 
 .direction-pad { display: grid; grid-template-columns: repeat(3, minmax(70px, 96px)); grid-template-rows: repeat(3, 62px); justify-content: center; gap: 7px; }
 .drive-button { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 13px; background: rgba(3, 11, 20, .52); cursor: pointer; }
@@ -112,6 +116,10 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .side-distance { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 9px 0 14px; }
 .side-distance span { padding: 9px; border-radius: 9px; background: rgba(3, 11, 20, .42); color: var(--muted); font-size: .75rem; text-align: center; }
 .side-distance strong { color: var(--cyan); }
+.line-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; margin-top: 10px; }
+.line-controls label { color: var(--muted); font-size: .7rem; font-weight: 750; }
+.line-controls select { min-width: 0; margin-bottom: 0; }
+.line-controls .button { min-width: 108px; }
 .button-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 12px; }
 .button-grid.two-buttons { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
 .button-grid.three-buttons { grid-template-columns: repeat(3, 1fr); }

@@ -24,6 +24,9 @@ const ui = {
   distanceValue: $("distanceValue"), routeValue: $("routeValue"), thresholdValue: $("thresholdValue"),
   servoValue: $("servoValue"), servoControlValue: $("servoControlValue"),
   leftDistanceValue: $("leftDistanceValue"), rightDistanceValue: $("rightDistanceValue"),
+  lineLeftTransValue: $("lineLeftTransValue"), lineLeftLongValue: $("lineLeftLongValue"),
+  lineRightTransValue: $("lineRightTransValue"), lineRightLongValue: $("lineRightLongValue"),
+  lineErrorValue: $("lineErrorValue"), trackMark: $("trackMark"),
   servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
   stageParamsButton: $("stageParamsButton"), applyParamsButton: $("applyParamsButton"),
@@ -33,12 +36,15 @@ const ui = {
   exportLogButton: $("exportLogButton"), clearLogButton: $("clearLogButton"), logWindow: $("logWindow")
 };
 
-const state = { connected: false, mode: "standby", motion: "stop" };
+const state = { connected: false, mode: "standby", motion: "stop", gear: "HIGH" };
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
   pwmLeft: null, pwmRight: null, error: null, trim: null, voltageMv: null,
   distance: null, route: "NONE", servo: null, servoControl: "AUTO",
-  leftDistance: null, rightDistance: null
+  leftDistance: null, rightDistance: null,
+  lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
+  lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
+  lineErrorX100: null
 };
 
 const knownParams = {};
@@ -88,7 +94,13 @@ function snapshot() {
     pwm_left: telemetry.pwmLeft, pwm_right: telemetry.pwmRight,
     straight_error: telemetry.error, straight_trim: telemetry.trim,
     voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance,
-    route: telemetry.route, servo_deg: telemetry.servo, servo_control: telemetry.servoControl
+    route: telemetry.route, servo_deg: telemetry.servo, servo_control: telemetry.servoControl,
+    line_left_trans: telemetry.lineLeftTrans, line_left_long: telemetry.lineLeftLong,
+    line_right_trans: telemetry.lineRightTrans, line_right_long: telemetry.lineRightLong,
+    line_left_trans_pct: telemetry.lineLeftTransPct, line_left_long_pct: telemetry.lineLeftLongPct,
+    line_right_trans_pct: telemetry.lineRightTransPct, line_right_long_pct: telemetry.lineRightLongPct,
+    line_error_x100: telemetry.lineErrorX100, track_mark: ui.trackMark.value,
+    speed_gear: state.gear
   };
 }
 
@@ -210,6 +222,13 @@ function scaleDriveTargets(factor) {
 function setMotion(motion) {
   state.motion = motion;
   ui.motionValue.textContent = motion.toUpperCase();
+}
+
+function setGear(gear) {
+  state.gear = gear;
+  document.querySelectorAll(".gear-choice").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.gear === gear);
+  });
 }
 
 function setMode(mode) {
@@ -541,6 +560,10 @@ function showDistance(value) {
   return value === "OUT" || value === null ? "--" : String(value);
 }
 
+function showLineSensor(raw, percent) {
+  return raw === null ? "-- · --%" : `${raw} · ${percent}%`;
+}
+
 function processLine(line) {
   const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
   if (modeMatch) setMode(modeMatch[1].toLowerCase());
@@ -551,6 +574,9 @@ function processLine(line) {
 
   const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|JOYSTICK|TURN90_LEFT|TURN90_RIGHT)\b/i);
   if (motionMatch) setMotion(motionMatch[1].toLowerCase());
+
+  const gearMatch = line.match(/(?:GEAR=|OK GEAR )(LOW|MEDIUM|HIGH)\b/i);
+  if (gearMatch) setGear(gearMatch[1].toUpperCase());
 
   const trace = line.match(/^TRACE M=(\w+) L=([+-]?\d+) R=([+-]?\d+) TL=([+-]?\d+) TR=([+-]?\d+) PL=([+-]?\d+) PR=([+-]?\d+) E=([+-]?\d+) C=([+-]?\d+) V=(\d+)$/i);
   if (trace) {
@@ -589,6 +615,18 @@ function processLine(line) {
   if (sensorVoltage) {
     telemetry.voltageMv = Number(sensorVoltage[1]);
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
+  }
+
+  const lineSensors = line.match(/^LINE LT=(\d+) LL=(\d+) RT=(\d+) RL=(\d+) NLT=(\d+) NLL=(\d+) NRT=(\d+) NRL=(\d+) ERR_X100=([+-]?\d+)$/i);
+  if (lineSensors) {
+    [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong,
+      telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightTransPct,
+      telemetry.lineRightLongPct, telemetry.lineErrorX100] = lineSensors.slice(1).map(Number);
+    ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
+    ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
+    ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
+    ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
+    ui.lineErrorValue.textContent = `方向误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}`;
   }
 
   const cps = line.match(/ENC CPS L=([+-]?\d+) R=([+-]?\d+)/i);
@@ -769,7 +807,7 @@ function csvCell(value) {
 }
 
 function exportCsv() {
-  const columns = ["time", "elapsed_ms", "kind", "mode", "motion", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv", "distance_cm", "route", "servo_deg", "servo_control", "note", "text"];
+  const columns = ["time", "elapsed_ms", "kind", "mode", "motion", "speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv", "distance_cm", "route", "servo_deg", "servo_control", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "line_error_x100", "track_mark", "note", "text"];
   const rows = [columns.join(",")];
   for (const record of logRecords) {
     const row = { ...record, note: ui.runNote.value };
@@ -801,6 +839,10 @@ document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {
     if (!(await sendCommand(button.dataset.command))) return;
     setMode(button.dataset.mode);
     if (button.dataset.mode === "remote" || button.dataset.mode === "sensor") selectTab(button.dataset.mode);
+    if (button.dataset.mode === "sensor") {
+      await delay(120);
+      await sendCommand("SENSOR");
+    }
   });
 });
 
@@ -810,6 +852,12 @@ document.querySelectorAll("button[data-command]:not([data-mode])").forEach((butt
     const motions = { FORWARD: "forward", BACKWARD: "backward", LEFT: "left", RIGHT: "right", STOP: "stop", "TURN90 LEFT": "turn90_left", "TURN90 RIGHT": "turn90_right" };
     if (motions[button.dataset.command]) setMotion(motions[button.dataset.command]);
     if (button.dataset.command === "STOP") centerJoystick(false);
+  });
+});
+
+document.querySelectorAll(".gear-choice").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (await sendCommand(`GEAR ${button.dataset.gear}`)) setGear(button.dataset.gear);
   });
 });
 
@@ -891,6 +939,7 @@ setConnected(false);
 loadGrantedDevices();
 selectTab("remote");
 drawJoystick(0, 0);
+setGear("HIGH");
 updateTurn90Status();
 updateDriveSpeedSummary();
 updateServoReadout();

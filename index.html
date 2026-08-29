@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-spp">
+  <link rel="stylesheet" href="styles.css?v=20260829-line-gears">
 </head>
 <body>
   <main class="app-shell">
@@ -61,6 +61,14 @@
             <strong id="joystickValue">X 0 · Y 0</strong>
             <small>Y 速度 · X 转向</small>
             <button class="button stop-button requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
+          </div>
+        </div>
+        <div class="gear-row">
+          <span>遥控速度档</span>
+          <div class="gear-switch" role="group" aria-label="遥控速度档">
+            <button class="gear-choice remote-only" data-gear="LOW" type="button" disabled>低</button>
+            <button class="gear-choice remote-only" data-gear="MEDIUM" type="button" disabled>中</button>
+            <button class="gear-choice remote-only selected" data-gear="HIGH" type="button" disabled>高</button>
           </div>
         </div>
       </section>
@@ -128,6 +136,30 @@
           <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>自动</button>
           <button class="button ghost sensor-only" data-command="SENSOR" type="button" disabled>刷新</button>
         </div>
+      </section>
+
+      <section class="card line-card">
+        <div class="section-title"><h2>四路电感</h2><span id="lineErrorValue">方向误差 --</span></div>
+        <div class="data-grid four line-sensor-grid">
+          <div><small>左横 · PA4</small><strong id="lineLeftTransValue">-- · --%</strong></div>
+          <div><small>左竖 · PA5</small><strong id="lineLeftLongValue">-- · --%</strong></div>
+          <div><small>右横 · PB1</small><strong id="lineRightTransValue">-- · --%</strong></div>
+          <div><small>右竖 · PB0</small><strong id="lineRightLongValue">-- · --%</strong></div>
+        </div>
+        <div class="line-controls">
+          <label for="trackMark">人工标记
+            <select id="trackMark">
+              <option value="UNMARKED">未标记</option>
+              <option value="STRAIGHT">直线</option>
+              <option value="LEFT">左转</option>
+              <option value="RIGHT">右转</option>
+              <option value="CROSS">十字</option>
+              <option value="LOST">丢线</option>
+            </select>
+          </label>
+          <button class="button primary sensor-only" data-command="LINE" type="button" disabled>读取电感</button>
+        </div>
+        <p class="message">连续采样时标记赛道形态，导出的四路数据可用于确定自动识别阈值。</p>
       </section>
     </section>
 
@@ -200,6 +232,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-spp"></script>
+  <script src="app.js?v=20260829-line-gears"></script>
 </body>
 </html>
