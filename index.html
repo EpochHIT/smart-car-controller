@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050b14">
+  <title>智能车控制台</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">STM32 智能车</p>
+        <h1>智能车控制台</h1>
+      </div>
+      <div class="connection-state" id="connectionState" aria-live="polite">
+        <span class="state-dot"></span>
+        <span id="connectionText">未连接</span>
+      </div>
+    </header>
+
+    <section class="card bluetooth-card" aria-labelledby="bluetoothTitle">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">无线连接</p>
+          <h2 id="bluetoothTitle">蓝牙设备</h2>
+        </div>
+        <span class="protocol">FFE0 / FFE1</span>
+      </div>
+      <div class="connection-buttons">
+        <button class="button primary" id="connectButton" type="button">
+          <span class="button-icon">ᛒ</span>选择蓝牙设备
+        </button>
+        <button class="button secondary" id="disconnectButton" type="button" disabled>断开</button>
+      </div>
+      <div class="device-line">
+        <span>BLE</span>
+        <strong id="deviceName">--</strong>
+      </div>
+      <p class="message" id="message" aria-live="polite">点击按钮选择 JDY 蓝牙模块</p>
+    </section>
+
+    <section class="card distance-card" aria-labelledby="distanceTitle">
+      <div>
+        <p class="section-kicker">HC-SR04</p>
+        <h2 id="distanceTitle">前方距离</h2>
+      </div>
+      <div class="distance-layout">
+        <div class="distance-gauge" id="distanceGauge">
+          <div class="distance-value"><strong id="distanceValue">--</strong><span id="distanceUnit">cm</span></div>
+        </div>
+        <div class="obstacle-state clear" id="obstacleState">
+          <span class="shield">✓</span>
+          <div><strong id="obstacleChinese">等待数据</strong><span id="obstacleValue">--</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="controlTitle">
+      <div class="section-heading compact">
+        <h2 id="controlTitle">车辆控制</h2>
+        <span class="command-hint">发送 ASCII 命令</span>
+      </div>
+      <div class="control-grid">
+        <button class="button drive forward control-button" data-command="F" type="button" disabled>
+          <span>▶</span><strong>开始循迹</strong><small>F</small>
+        </button>
+        <button class="button drive stop control-button" data-command="S" type="button" disabled>
+          <span>■</span><strong>紧急停车</strong><small>S</small>
+        </button>
+        <button class="button drive reverse control-button" data-command="B" type="button" disabled>
+          <span>◀</span><strong>倒车</strong><small>B</small>
+        </button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="speedTitle">
+      <div class="section-heading compact">
+        <h2 id="speedTitle">速度</h2>
+        <strong class="speed-readout" id="speedReadout">30%</strong>
+      </div>
+      <input class="speed-slider" id="speedSlider" type="range" min="1" max="9" step="1" value="3" disabled aria-label="速度档位">
+      <div class="speed-presets" id="speedPresets">
+        <button data-speed="1" type="button" disabled>10%</button>
+        <button class="selected" data-speed="3" type="button" disabled>30%</button>
+        <button data-speed="5" type="button" disabled>50%</button>
+        <button data-speed="7" type="button" disabled>70%</button>
+        <button data-speed="9" type="button" disabled>90%</button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="sensorModeTitle">
+      <div class="section-heading compact">
+        <h2 id="sensorModeTitle">传感器模式</h2>
+      </div>
+      <div class="mode-switch">
+        <button class="mode-button selected control-button" id="sensorOnButton" data-command="T" type="button" disabled>接入传感器 <b>T</b></button>
+        <button class="mode-button control-button" id="sensorOffButton" data-command="N" type="button" disabled>关闭传感器 <b>N</b></button>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="feedbackTitle">
+      <div class="section-heading compact">
+        <h2 id="feedbackTitle">数据反馈</h2>
+        <span class="alive-indicator" id="aliveIndicator">等待心跳</span>
+      </div>
+      <div class="sensor-grid">
+        <div class="data-tile"><span>L1</span><strong id="l1Value">--</strong></div>
+        <div class="data-tile"><span>L2</span><strong id="l2Value">--</strong></div>
+        <div class="data-tile"><span>R1</span><strong id="r1Value">--</strong></div>
+        <div class="data-tile"><span>R2</span><strong id="r2Value">--</strong></div>
+      </div>
+      <div class="motor-grid">
+        <div class="data-tile"><span>ERROR</span><strong id="errorValue">--</strong></div>
+        <div class="data-tile"><span>左轮 ML</span><strong id="mlValue">--</strong></div>
+        <div class="data-tile"><span>右轮 MR</span><strong id="mrValue">--</strong></div>
+      </div>
+    </section>
+
+    <section class="card log-card" aria-labelledby="logTitle">
+      <div class="section-heading compact">
+        <h2 id="logTitle">通信日志</h2>
+        <button class="text-button" id="clearLogButton" type="button">清空</button>
+      </div>
+      <div class="log-window" id="logWindow" role="log" aria-live="polite">
+        <p class="muted">等待蓝牙数据…</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
