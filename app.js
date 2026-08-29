@@ -2,6 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const EXPECTED_PROTOCOL_VERSION = 12;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
@@ -25,6 +26,7 @@ const ui = {
   trackEndValue: $("trackEndValue"), trackPValue: $("trackPValue"), trackIValue: $("trackIValue"),
   trackDValue: $("trackDValue"), trackTrimValue: $("trackTrimValue"),
   lineCalibrationValue: $("lineCalibrationValue"), lineCalibrationButton: $("lineCalibrationButton"),
+  firmwareWarning: $("firmwareWarning"),
   copySensorButton: $("copySensorButton"),
   servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
@@ -38,7 +40,7 @@ const ui = {
 const state = {
   connected: false, mode: "standby", motion: "stop", gear: "HIGH",
   trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false,
-  lineCalibrated: false, lineCalibrating: false, trackEnd: "NONE"
+  lineCalibrated: false, lineCalibrating: false, firmwareCompatible: null, trackEnd: "NONE"
 };
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
@@ -334,7 +336,7 @@ function setAvoidance(enabled) {
 
 function setLineCalibrated(calibrated) {
   state.lineCalibrated = calibrated;
-  ui.lineCalibrationValue.textContent = calibrated ? "百分比已标定" : "百分比未标定";
+  ui.lineCalibrationValue.textContent = calibrated ? "已标定，可启动" : "首次需标定一次";
   ui.lineCalibrationValue.classList.toggle("ready", calibrated);
   updateAvailability();
 }
@@ -389,7 +391,13 @@ function updateAvailability() {
   ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
   ui.remoteLock.textContent = remoteReady ? "遥控已就绪" : state.connected ? "正在切换…" : "连接后可用";
   ui.sensorLock.textContent = sensorReady ? "传感器读取中" : state.connected ? "正在切换…" : "连接后自动就绪";
-  ui.trackStartButton.disabled = !sensorReady || state.trackRunning || !state.lineCalibrated || state.lineCalibrating;
+  if (state.trackRunning) ui.trackStartButton.textContent = "巡线运行中";
+  else if (state.lineCalibrating) ui.trackStartButton.textContent = "正在标定…";
+  else if (!sensorReady || state.firmwareCompatible === null) ui.trackStartButton.textContent = "正在读取传感器…";
+  else if (!state.firmwareCompatible) ui.trackStartButton.textContent = "需更新小车固件";
+  else if (!state.lineCalibrated) ui.trackStartButton.textContent = "需先标定一次";
+  else ui.trackStartButton.textContent = "▶ 启动巡线";
+  ui.trackStartButton.disabled = !sensorReady || state.trackRunning || state.firmwareCompatible !== true || !state.lineCalibrated || state.lineCalibrating;
   ui.trackStopButton.disabled = !sensorReady || !state.trackRunning;
   ui.lineCalibrationButton.disabled = !sensorReady || state.trackRunning;
   updateLogProfile();
@@ -417,6 +425,9 @@ function setConnected(connected) {
     stopLinePolling();
     state.mode = "standby";
     state.motion = "stop";
+    state.firmwareCompatible = null;
+    ui.firmwareWarning.hidden = true;
+    ui.firmwareWarning.textContent = "";
     setTrackRunning(false);
     setAvoidance(false);
     setLineCalibrated(false);
@@ -693,6 +704,20 @@ function processLine(line) {
       const split = token.indexOf("=");
       return split > 0 ? [[token.slice(0, split), token.slice(split + 1)]] : [];
     }));
+    const protocolVersion = numberField(fields, "PROTO");
+    const rightVerticalReturned = fields.RV !== undefined || fields.RL !== undefined;
+    state.firmwareCompatible = protocolVersion === EXPECTED_PROTOCOL_VERSION && rightVerticalReturned;
+    if (!rightVerticalReturned) {
+      ui.firmwareWarning.textContent = "小车固件没有返回右竖 PB0。请烧录最新版 car_main.hex；这不是“未标定”。";
+      ui.firmwareWarning.hidden = false;
+    } else if (protocolVersion !== EXPECTED_PROTOCOL_VERSION) {
+      ui.firmwareWarning.textContent = `网页需要协议 ${EXPECTED_PROTOCOL_VERSION}，当前小车固件为${Number.isFinite(protocolVersion) ? ` ${protocolVersion}` : "旧版本"}。请烧录最新版 car_main.hex。`;
+      ui.firmwareWarning.hidden = false;
+    } else {
+      ui.firmwareWarning.hidden = true;
+      ui.firmwareWarning.textContent = "";
+    }
+    updateAvailability();
     if (fields.CAL !== undefined) setLineCalibrated(fields.CAL === "1");
     if (fields.STATE) setTrackState(fields.STATE.toUpperCase());
     if (fields.AVOID) setAvoidance(fields.AVOID === "ON");
@@ -726,7 +751,8 @@ function processLine(line) {
     ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
     ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
     ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
-    ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
+    ui.lineRightLongValue.textContent = rightVerticalReturned ?
+      showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct) : "固件未返回";
     ui.lineErrorValue.textContent = state.lineCalibrated && Number.isFinite(telemetry.lineErrorX100) ?
       `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}` : "原始 ADC";
     ui.trackPValue.textContent = telemetry.trackP ?? "--";

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-mode-ack">
+  <link rel="stylesheet" href="styles.css?v=20260829-sensor-status">
 </head>
 <body>
   <main class="app-shell">
@@ -44,7 +44,7 @@
           <div><small>避障</small><strong id="avoidanceValue">关闭</strong></div>
         </div>
         <div class="button-grid two-buttons track-run-buttons">
-          <button class="button primary sensor-only" id="trackStartButton" type="button" disabled>▶ 启动巡线</button>
+          <button class="button primary sensor-only" id="trackStartButton" type="button" disabled>正在读取传感器…</button>
           <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束巡线</button>
         </div>
         <div class="gear-row">
@@ -66,7 +66,8 @@
 
       <section class="card line-card">
         <div class="section-title"><h2>四路电感</h2><span id="lineErrorValue">原始 ADC</span></div>
-        <div class="calibration-strip"><span id="lineCalibrationValue">百分比未标定</span><strong>停车时也会持续读取</strong></div>
+        <div class="calibration-strip"><span id="lineCalibrationValue">首次需标定一次</span><strong>停车时也会持续读取</strong></div>
+        <p class="calibration-note">范围标定只需首次或更换传感器后做一次；保存到小车后，重新开机不用重复。</p>
         <p class="orientation-note"><strong>正向沿线：</strong>左横、右横应高　 <strong>车身横在线上：</strong>左竖、右竖应高</p>
         <div class="data-grid four">
           <div><small>左横 · PA4</small><strong id="lineLeftTransValue">-- · --%</strong></div>
@@ -74,6 +75,7 @@
           <div><small>右横 · PB1</small><strong id="lineRightTransValue">-- · --%</strong></div>
           <div><small>右竖 · PB0</small><strong id="lineRightLongValue">-- · --%</strong></div>
         </div>
+        <p class="firmware-warning" id="firmwareWarning" hidden></p>
         <div class="button-grid two-buttons track-run-buttons"><button class="button ghost sensor-only" data-command="LINE" type="button" disabled>读取当前值</button><button class="button ghost sensor-only" id="copySensorButton" type="button" disabled>复制四路数据</button></div>
         <button class="button primary full sensor-only" id="lineCalibrationButton" type="button" disabled>开始范围标定</button>
         <details class="inline-details">
@@ -209,6 +211,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-mode-ack"></script>
+  <script src="app.js?v=20260829-sensor-status"></script>
 </body>
 </html>
