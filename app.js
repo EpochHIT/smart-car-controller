@@ -3,6 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const EXPECTED_PROTOCOL_VERSION = 15;
+const BLUETOOTH_BAUD_RATE = 57600;
+const SERIAL_BUFFER_SIZE = 4096;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
@@ -678,20 +680,20 @@ async function readSerialPort(port) {
 
 async function connectSerialPort(port) {
   setMessage("正在连接蓝牙串口…");
-  await port.open({ baudRate: 9600, bufferSize: 1024 });
+  await port.open({ baudRate: BLUETOOTH_BAUD_RATE, bufferSize: SERIAL_BUFFER_SIZE });
   serialPort = port;
   serialWriter = port.writable.getWriter();
   lastGrantedSerialPort = port;
   intentionalDisconnect = false;
-  ui.deviceName.textContent = "SPP 蓝牙已连接";
+  ui.deviceName.textContent = `SPP 蓝牙已连接 · ${BLUETOOTH_BAUD_RATE}`;
   setConnected(true);
-  addLog("CONNECTED SPP");
+  addLog(`CONNECTED SPP ${BLUETOOTH_BAUD_RATE} 8N1`);
   serialReadTask = readSerialPort(port);
   selectTab("sensor");
   if (await activateMode("sensor")) {
     setMessage("连接成功：巡线待机，电机未启动");
   } else {
-    setMessage("蓝牙已连接，但小车没有确认巡线模式，请点“巡线”重试", true);
+    setMessage(`蓝牙已连接但小车无回应，请确认固件和模块均为 ${BLUETOOTH_BAUD_RATE}，再点“巡线”重试`, true);
   }
 }
 
