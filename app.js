@@ -8,7 +8,8 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  deviceNameFilter: $("deviceNameFilter"), deviceName: $("deviceName"), message: $("message"),
+  connectionType: $("connectionType"), deviceNameFilter: $("deviceNameFilter"),
+  deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
   joystickPad: $("joystickPad"), joystickKnob: $("joystickKnob"), joystickValue: $("joystickValue"),
@@ -45,8 +46,14 @@ const motorChannels = { LF: 0, LB: 0, RF: 0, RB: 0 };
 const logRecords = [];
 let paramsLoaded = false;
 let bluetoothDevice = null;
-let lastGrantedDevice = null;
+let lastGrantedBleDevice = null;
 let uartCharacteristic = null;
+let serialPort = null;
+let lastGrantedSerialPort = null;
+let serialReader = null;
+let serialWriter = null;
+let serialReadTask = null;
+let activeTransport = null;
 let receiveBuffer = "";
 let writeQueue = Promise.resolve();
 let intentionalDisconnect = false;
@@ -232,14 +239,36 @@ function updateAvailability() {
   ui.sensorLock.textContent = sensorReady ? "已运行" : "需进入传感模式";
 }
 
+function selectedConnectionType() {
+  return ui.connectionType.value;
+}
+
+function selectedLastDevice() {
+  return selectedConnectionType() === "serial" ? lastGrantedSerialPort : lastGrantedBleDevice;
+}
+
+function lastDeviceLabel() {
+  if (selectedConnectionType() === "serial") return lastGrantedSerialPort ? "上次：已授权的 SPP 设备" : "--";
+  return lastGrantedBleDevice ? `上次：${lastGrantedBleDevice.name || "未命名设备"}` : "--";
+}
+
+function updateConnectionControls() {
+  const serialSelected = selectedConnectionType() === "serial";
+  ui.deviceNameFilter.hidden = serialSelected;
+  ui.connectionType.disabled = state.connected;
+  ui.deviceNameFilter.disabled = state.connected;
+  ui.connectButton.textContent = serialSelected ? "连接" : "搜索设备";
+  ui.disconnectButton.disabled = !state.connected && !selectedLastDevice();
+  ui.disconnectButton.textContent = state.connected ? "断开" : "上次设备";
+  if (!state.connected) ui.deviceName.textContent = lastDeviceLabel();
+}
+
 function setConnected(connected) {
   state.connected = connected;
   ui.connectionState.classList.toggle("connected", connected);
   ui.connectionText.textContent = connected ? "已连接" : "未连接";
   ui.connectButton.disabled = connected;
-  ui.disconnectButton.disabled = !connected && !lastGrantedDevice;
-  ui.disconnectButton.textContent = connected ? "断开" : "上次设备";
-  ui.deviceNameFilter.disabled = connected;
+  updateConnectionControls();
   if (!connected) {
     state.mode = "standby";
     state.motion = "stop";
@@ -253,10 +282,59 @@ function setConnected(connected) {
   updateAvailability();
 }
 
-async function connectDevice(device) {
+function receiveBytes(value) {
+  receiveBuffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
+  const lines = receiveBuffer.split("\n");
+  receiveBuffer = lines.pop() || "";
+  lines.map((line) => line.trim()).filter(Boolean).forEach(processLine);
+}
+
+async function readSerialPort(port) {
+  const reader = port.readable.getReader();
+  serialReader = reader;
+  try {
+    while (serialPort === port) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) receiveBytes(value);
+    }
+  } catch (error) {
+    if (serialPort === port && !intentionalDisconnect) addLog(`串口读取失败：${error.message}`, "error");
+  } finally {
+    try { reader.releaseLock(); } catch (_) { /* 已释放 */ }
+    if (serialReader === reader) serialReader = null;
+    if (serialPort === port) {
+      serialPort = null;
+      if (serialWriter) {
+        try { serialWriter.releaseLock(); } catch (_) { /* 已释放 */ }
+      }
+      serialWriter = null;
+      activeTransport = null;
+      handleDisconnected();
+    }
+  }
+}
+
+async function connectSerialPort(port) {
+  setMessage("正在连接 JDY-31 串口…");
+  await port.open({ baudRate: 9600, bufferSize: 1024 });
+  serialPort = port;
+  serialWriter = port.writable.getWriter();
+  activeTransport = "serial";
+  lastGrantedSerialPort = port;
+  intentionalDisconnect = false;
+  ui.deviceName.textContent = "JDY-31 · SPP";
+  setConnected(true);
+  addLog("CONNECTED JDY-31 SPP");
+  serialReadTask = readSerialPort(port);
+  await sendCommand("CHECK");
+  setMessage("串口蓝牙连接成功");
+}
+
+async function connectBleDevice(device) {
   bluetoothDevice = device;
   bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
-  setMessage("正在连接…");
+  setMessage("正在连接 BLE…");
   const server = await bluetoothDevice.gatt.connect();
   const service = await server.getPrimaryService(SERVICE_UUID);
   uartCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
@@ -265,7 +343,8 @@ async function connectDevice(device) {
     uartCharacteristic.addEventListener("characteristicvaluechanged", handleNotification);
   }
 
-  lastGrantedDevice = device;
+  activeTransport = "ble";
+  lastGrantedBleDevice = device;
   localStorage.setItem("smartCarDeviceId", device.id);
   intentionalDisconnect = false;
   ui.deviceName.textContent = bluetoothDevice.name || "未命名设备";
@@ -275,9 +354,35 @@ async function connectDevice(device) {
   setMessage("连接成功");
 }
 
+async function connectSerial() {
+  if (!navigator.serial) {
+    setMessage("此浏览器不支持网页串口；Android 请使用 Chrome 137 或更高版本", true);
+    return;
+  }
+
+  try {
+    setMessage("请选择已配对的 JDY-31 / HC-05…");
+    const selectedPort = await navigator.serial.requestPort({
+      filters: [{ bluetoothServiceClassId: "00001101-0000-1000-8000-00805f9b34fb" }]
+    });
+    await connectSerialPort(selectedPort);
+  } catch (error) {
+    if (error.name === "NotFoundError") {
+      setMessage("未选择设备；请先在系统蓝牙中完成配对");
+      return;
+    }
+    serialPort = null;
+    serialWriter = null;
+    activeTransport = null;
+    setConnected(false);
+    setMessage(`串口连接失败：${error.message}`, true);
+    addLog(error.message, "error");
+  }
+}
+
 async function connectBluetooth() {
   if (!navigator.bluetooth) {
-    setMessage("浏览器不支持网页蓝牙；iPhone 请使用 Bluefy", true);
+    setMessage("浏览器不支持 BLE 网页连接", true);
     return;
   }
 
@@ -289,7 +394,7 @@ async function connectBluetooth() {
     localStorage.setItem("smartCarDevicePrefix", namePrefix);
     setMessage(namePrefix ? `只显示名称以 ${namePrefix} 开头的设备…` : "显示附近全部蓝牙设备…");
     const selectedDevice = await navigator.bluetooth.requestDevice(requestOptions);
-    await connectDevice(selectedDevice);
+    await connectBleDevice(selectedDevice);
   } catch (error) {
     if (error.name === "NotFoundError") {
       setMessage("未选择设备；可修改前缀或留空重试");
@@ -302,13 +407,26 @@ async function connectBluetooth() {
   }
 }
 
+function connectSelectedDevice() {
+  return selectedConnectionType() === "serial" ? connectSerial() : connectBluetooth();
+}
+
 async function connectLastDevice() {
-  if (!lastGrantedDevice) return;
+  const device = selectedLastDevice();
+  if (!device) return;
   try {
-    setMessage(`连接上次设备：${lastGrantedDevice.name || "未命名设备"}…`);
-    await connectDevice(lastGrantedDevice);
+    if (selectedConnectionType() === "serial") {
+      setMessage("正在连接上次授权的 SPP 设备…");
+      await connectSerialPort(device);
+    } else {
+      setMessage(`连接上次设备：${device.name || "未命名设备"}…`);
+      await connectBleDevice(device);
+    }
   } catch (error) {
     uartCharacteristic = null;
+    serialPort = null;
+    serialWriter = null;
+    activeTransport = null;
     setConnected(false);
     setMessage(`上次设备连接失败：${error.message}`, true);
     addLog(error.message, "error");
@@ -316,35 +434,58 @@ async function connectLastDevice() {
 }
 
 async function loadGrantedDevices() {
-  if (!navigator.bluetooth?.getDevices) return;
-  try {
-    const devices = await navigator.bluetooth.getDevices();
-    const savedId = localStorage.getItem("smartCarDeviceId");
-    lastGrantedDevice = devices.find((device) => device.id === savedId) ||
-                        (devices.length === 1 ? devices[0] : null);
-    if (!lastGrantedDevice) return;
-    ui.deviceName.textContent = `上次：${lastGrantedDevice.name || "未命名设备"}`;
-    setConnected(false);
-    setMessage("可直接连接上次设备，或搜索新设备");
-  } catch (_) {
-    return;
+  if (navigator.serial?.getPorts) {
+    try {
+      const ports = await navigator.serial.getPorts();
+      const sppPorts = ports.filter((port) => port.getInfo().bluetoothServiceClassId);
+      if (sppPorts.length === 1) lastGrantedSerialPort = sppPorts[0];
+    } catch (_) { /* 使用手动连接 */ }
   }
+
+  if (navigator.bluetooth?.getDevices) {
+    try {
+      const devices = await navigator.bluetooth.getDevices();
+      const savedId = localStorage.getItem("smartCarDeviceId");
+      lastGrantedBleDevice = devices.find((device) => device.id === savedId) ||
+                             (devices.length === 1 ? devices[0] : null);
+    } catch (_) { /* 使用手动连接 */ }
+  }
+
+  updateConnectionControls();
+  if (selectedLastDevice()) setMessage("可直接连接上次设备，或重新选择");
 }
 
-async function disconnectBluetooth() {
-  if (!bluetoothDevice?.gatt?.connected) return;
+async function disconnectCurrentDevice() {
+  if (!state.connected) return;
   intentionalDisconnect = true;
   await sendCommand("STOP");
-  bluetoothDevice.gatt.disconnect();
+  if (activeTransport === "serial") {
+    const port = serialPort;
+    serialPort = null;
+    try { await serialReader?.cancel(); } catch (_) { /* 已断开 */ }
+    try { await serialReadTask; } catch (_) { /* 读取循环已结束 */ }
+    if (serialWriter) {
+      try { serialWriter.releaseLock(); } catch (_) { /* 已释放 */ }
+    }
+    serialWriter = null;
+    serialReadTask = null;
+    activeTransport = null;
+    try { await port?.close(); } catch (_) { /* 设备已经关闭 */ }
+    handleDisconnected();
+    return;
+  }
+  bluetoothDevice?.gatt?.disconnect();
 }
 
 function handleDisconnected() {
   const planned = intentionalDisconnect;
   intentionalDisconnect = false;
   uartCharacteristic = null;
+  bluetoothDevice = null;
+  activeTransport = null;
   receiveBuffer = "";
   setConnected(false);
-  ui.deviceName.textContent = lastGrantedDevice ? `上次：${lastGrantedDevice.name || "未命名设备"}` : "--";
+  ui.deviceName.textContent = lastDeviceLabel();
   setMessage(planned ? "已停车并断开" : "意外断线，无法确认停车", !planned);
   addLog(planned ? "DISCONNECTED" : "UNEXPECTED DISCONNECT", planned ? "rx" : "error");
 }
@@ -358,20 +499,22 @@ function sendCommand(command) {
 }
 
 async function writeCommand(command) {
-  if (!uartCharacteristic || !bluetoothDevice?.gatt?.connected) {
+  if (!state.connected) {
     setMessage("请先连接蓝牙", true);
     return false;
   }
   try {
     const data = encoder.encode(`${command}\n`);
-    if (uartCharacteristic.properties.write && uartCharacteristic.writeValueWithResponse) {
+    if (activeTransport === "serial" && serialWriter) {
+      await serialWriter.write(data);
+    } else if (activeTransport === "ble" && uartCharacteristic?.properties.write && uartCharacteristic.writeValueWithResponse) {
       await uartCharacteristic.writeValueWithResponse(data);
-    } else if (uartCharacteristic.properties.writeWithoutResponse && uartCharacteristic.writeValueWithoutResponse) {
+    } else if (activeTransport === "ble" && uartCharacteristic?.properties.writeWithoutResponse && uartCharacteristic.writeValueWithoutResponse) {
       await uartCharacteristic.writeValueWithoutResponse(data);
-    } else if (uartCharacteristic.writeValue) {
+    } else if (activeTransport === "ble" && uartCharacteristic?.writeValue) {
       await uartCharacteristic.writeValue(data);
     } else {
-      throw new Error("FFE1 不支持写入");
+      throw new Error("当前连接不可写");
     }
     addLog(command, "tx");
     setMessage(`${command} 已发送`);
@@ -384,10 +527,7 @@ async function writeCommand(command) {
 }
 
 function handleNotification(event) {
-  receiveBuffer += decoder.decode(event.target.value, { stream: true }).replace(/\r/g, "");
-  const lines = receiveBuffer.split("\n");
-  receiveBuffer = lines.pop() || "";
-  lines.map((line) => line.trim()).filter(Boolean).forEach(processLine);
+  receiveBytes(event.target.value);
 }
 
 function updateMotorFromChannels() {
@@ -644,8 +784,16 @@ function exportCsv() {
   URL.revokeObjectURL(url);
 }
 
-ui.connectButton.addEventListener("click", connectBluetooth);
-ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectBluetooth() : connectLastDevice());
+ui.connectButton.addEventListener("click", connectSelectedDevice);
+ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectCurrentDevice() : connectLastDevice());
+ui.connectionType.addEventListener("change", () => {
+  updateConnectionControls();
+  if (selectedConnectionType() === "serial") {
+    setMessage(navigator.serial ? "选择已配对的 JDY-31 / HC-05" : "Android 请使用 Chrome 137 或更高版本", !navigator.serial);
+  } else {
+    setMessage("可按 BLE 设备名前缀筛选");
+  }
+});
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
 
 document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {

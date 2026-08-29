@@ -6,18 +6,22 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-last-device">
+  <link rel="stylesheet" href="styles.css?v=20260829-spp">
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
-      <div><span class="eyebrow">STM32 · BLE</span><h1>智能车控制台</h1></div>
+      <div><span class="eyebrow">STM32 · 蓝牙串口</span><h1>智能车控制台</h1></div>
       <div class="connection-state" id="connectionState"><span class="state-dot"></span><span id="connectionText">未连接</span></div>
     </header>
 
     <section class="card quick-panel">
       <div class="connect-row">
-        <input class="device-filter" id="deviceNameFilter" type="search" value="JDY" maxlength="32" list="commonDeviceNames" placeholder="设备名前缀，留空显示全部" aria-label="蓝牙设备名称前缀">
+        <select class="device-filter" id="connectionType" aria-label="蓝牙连接方式">
+          <option value="serial" selected>JDY-31 / HC-05（SPP）</option>
+          <option value="ble">BLE（FFE0 / FFE1）</option>
+        </select>
+        <input class="device-filter" id="deviceNameFilter" type="search" value="JDY" maxlength="32" list="commonDeviceNames" placeholder="BLE 设备名前缀" aria-label="BLE 设备名称前缀" hidden>
         <datalist id="commonDeviceNames"><option value="JDY"><option value="BT05"><option value="HC-08"></datalist>
         <button class="button primary" id="connectButton" type="button">搜索设备</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>上次设备</button>
@@ -29,7 +33,7 @@
         <button class="mode-choice requires-connection" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>传感</button>
         <button class="mode-choice stop requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
       </div>
-      <p class="message" id="message" aria-live="polite">输入设备名前缀再搜索，留空显示全部</p>
+      <p class="message" id="message" aria-live="polite">先在手机系统蓝牙中配对 JDY-31，再点连接</p>
     </section>
 
     <nav class="tabs" aria-label="功能导航">
@@ -196,6 +200,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-last-device"></script>
+  <script src="app.js?v=20260829-spp"></script>
 </body>
 </html>
