@@ -4,196 +4,180 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#07111f">
-  <meta name="description" content="STM32 智能车蓝牙遥控、传感器台架与左右轮 PWM 调试控制台">
+  <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="app-shell">
     <header class="topbar">
-      <div>
-        <p class="eyebrow">STM32 · JDY 蓝牙</p>
-        <h1>智能车控制台</h1>
-        <p class="subtitle">遥控、传感器与直线标定互相独立</p>
-      </div>
-      <div class="connection-state" id="connectionState" aria-live="polite">
-        <span class="state-dot"></span>
-        <span id="connectionText">未连接</span>
-      </div>
+      <div><span class="eyebrow">STM32 · BLE</span><h1>智能车控制台</h1></div>
+      <div class="connection-state" id="connectionState"><span class="state-dot"></span><span id="connectionText">未连接</span></div>
     </header>
 
-    <section class="card connection-card" aria-labelledby="bluetoothTitle">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">第一步</p>
-          <h2 id="bluetoothTitle">连接小车</h2>
-        </div>
-        <span class="protocol">FFE0 / FFE1</span>
+    <section class="card quick-panel">
+      <div class="connect-row">
+        <button class="button primary" id="connectButton" type="button">连接蓝牙</button>
+        <button class="button ghost" id="disconnectButton" type="button" disabled>断开</button>
+        <strong class="device-name" id="deviceName">--</strong>
       </div>
-      <div class="connection-buttons">
-        <button class="button primary" id="connectButton" type="button">选择蓝牙设备</button>
-        <button class="button secondary" id="disconnectButton" type="button" disabled>断开连接</button>
+      <div class="mode-switch" role="group" aria-label="运行模式">
+        <button class="mode-choice requires-connection selected" data-mode="standby" data-command="MODE STANDBY" type="button" disabled>待机</button>
+        <button class="mode-choice requires-connection" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>遥控</button>
+        <button class="mode-choice requires-connection" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>传感</button>
+        <button class="mode-choice stop requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
       </div>
-      <div class="device-line">
-        <span>当前设备</span>
-        <strong id="deviceName">--</strong>
-      </div>
-      <p class="message" id="message" aria-live="polite">连接后仍保持待机，需要再选择运行模式。</p>
+      <p class="message" id="message" aria-live="polite">先连接，再选模式</p>
     </section>
 
-    <section class="card mode-card" aria-labelledby="modeTitle">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">第二步</p>
-          <h2 id="modeTitle">选择运行模式</h2>
-        </div>
-        <span class="mode-status" id="modeStatus">待机</span>
-      </div>
-      <p class="section-copy">蓝牙遥控与传感器台架互斥；切换模式时固件会先停车。</p>
-      <div class="mode-grid" role="group" aria-label="运行模式">
-        <button class="mode-choice requires-connection selected" data-mode="standby" data-command="MODE STANDBY" type="button" disabled>
-          <strong>待机</strong><span>电机与传感器关闭</span><code>MODE STANDBY</code>
-        </button>
-        <button class="mode-choice requires-connection" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>
-          <strong>蓝牙遥控</strong><span>方向控制与电机标定</span><code>MODE REMOTE</code>
-        </button>
-        <button class="mode-choice requires-connection" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>
-          <strong>传感器台架</strong><span>测距、舵机与编码器</span><code>MODE SENSOR</code>
-        </button>
-      </div>
-      <button class="button danger requires-connection" id="globalStopButton" data-command="STOP" type="button" disabled>
-        <span aria-hidden="true">■</span> 全局停车
-      </button>
-    </section>
+    <nav class="tabs" aria-label="功能导航">
+      <button class="tab-button active" data-tab="remote" type="button">遥控</button>
+      <button class="tab-button" data-tab="sensor" type="button">传感</button>
+      <button class="tab-button" data-tab="tuning" type="button">调参</button>
+      <button class="tab-button" data-tab="logs" type="button">日志</button>
+    </nav>
 
-    <section class="card mode-panel" id="remotePanel" aria-labelledby="remoteTitle">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">蓝牙遥控模式</p>
-          <h2 id="remoteTitle">方向控制</h2>
-        </div>
-        <span class="panel-lock" id="remoteLock">请先进入遥控模式</span>
-      </div>
-      <div class="direction-pad" aria-label="车辆方向">
-        <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><span>↑</span><strong>前进</strong></button>
-        <button class="drive-button remote-only left" data-command="LEFT" type="button" disabled><span>←</span><strong>左转</strong></button>
-        <button class="drive-button stop requires-connection" data-command="STOP" type="button" disabled><span>■</span><strong>停车</strong></button>
-        <button class="drive-button remote-only right" data-command="RIGHT" type="button" disabled><span>→</span><strong>右转</strong></button>
-        <button class="drive-button remote-only backward" data-command="BACKWARD" type="button" disabled><span>↓</span><strong>后退</strong></button>
+    <section class="tab-panel active" id="remoteTab" data-panel="remote">
+      <div class="status-strip">
+        <span>模式 <strong id="modeValue">STANDBY</strong></span>
+        <span>动作 <strong id="motionValue">STOP</strong></span>
+        <span>电压 <strong id="voltageValue">--</strong></span>
       </div>
 
-      <div class="subsection-heading">
-        <div>
-          <p class="section-kicker">直线调试</p>
-          <h3>闭环命令与独立 PWM</h3>
+      <div class="card remote-card">
+        <div class="section-title"><h2>方向</h2><span id="remoteLock">需进入遥控模式</span></div>
+        <div class="direction-pad" aria-label="车辆方向">
+          <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><b>↑</b><small>前进</small></button>
+          <button class="drive-button remote-only left" data-command="LEFT" type="button" disabled><b>←</b><small>左转</small></button>
+          <button class="drive-button stop requires-connection" data-command="STOP" type="button" disabled><b>■</b><small>停车</small></button>
+          <button class="drive-button remote-only right" data-command="RIGHT" type="button" disabled><b>→</b><small>右转</small></button>
+          <button class="drive-button remote-only backward" data-command="BACKWARD" type="button" disabled><b>↓</b><small>后退</small></button>
         </div>
       </div>
-      <div class="straight-grid">
-        <article class="test-block">
-          <span class="test-label">原本功能 · 保留</span>
-          <h4>编码器闭环直行</h4>
-          <p>沿用固件的目标 CPS、双轮 PI 与长期直线修正。</p>
-          <div class="inline-actions">
-            <button class="button primary remote-only" data-command="FORWARD" type="button" disabled>发送 FORWARD</button>
-            <button class="button secondary requires-connection" data-command="STOP" type="button" disabled>停车</button>
+
+      <div class="two-column">
+        <section class="card compact-card">
+          <div class="section-title"><h2>闭环直行</h2><span>CPS</span></div>
+          <div class="action-stack">
+            <button class="button primary remote-only" data-command="FORWARD" type="button" disabled>开始直行</button>
+            <button class="button ghost remote-only" data-command="TRACE" type="button" disabled>读取快照</button>
           </div>
-        </article>
+        </section>
 
-        <article class="test-block accent">
-          <span class="test-label">新增功能 · 开环标定</span>
-          <h4>左右轮独立 PWM</h4>
-          <p>分别设置左右轮占空比，绕过速度 PI，用于找出直线基础差值。</p>
-          <label class="range-row" for="leftPwm">
-            <span>左轮 PWM</span><output id="leftPwmValue" for="leftPwm">30%</output>
-          </label>
-          <input class="pwm-slider remote-only" id="leftPwm" type="range" min="0" max="100" step="1" value="30" disabled>
-          <label class="range-row" for="rightPwm">
-            <span>右轮 PWM</span><output id="rightPwmValue" for="rightPwm">30%</output>
-          </label>
-          <input class="pwm-slider remote-only" id="rightPwm" type="range" min="0" max="100" step="1" value="30" disabled>
-          <button class="button primary full-width remote-only" id="sendPwmButton" type="button" disabled>发送 PWM L=30 / R=30</button>
-        </article>
+        <section class="card compact-card">
+          <div class="section-title"><h2>独立 PWM</h2><span>开环</span></div>
+          <label class="range-row" for="leftPwm"><span>左</span><output id="leftPwmValue">30%</output></label>
+          <input class="range remote-only" id="leftPwm" type="range" min="0" max="100" value="30" disabled>
+          <label class="range-row" for="rightPwm"><span>右</span><output id="rightPwmValue">30%</output></label>
+          <input class="range remote-only" id="rightPwm" type="range" min="0" max="100" value="30" disabled>
+          <button class="button primary full remote-only" id="sendPwmButton" type="button" disabled>发送 30 / 30</button>
+        </section>
       </div>
+
+      <section class="card compact-card">
+        <div class="section-title"><h2>直线数据</h2><span>TRACE</span></div>
+        <div class="data-grid four">
+          <div><small>左 CPS</small><strong id="leftCpsValue">--</strong></div>
+          <div><small>右 CPS</small><strong id="rightCpsValue">--</strong></div>
+          <div><small>左目标</small><strong id="leftTargetValue">--</strong></div>
+          <div><small>右目标</small><strong id="rightTargetValue">--</strong></div>
+          <div><small>左 PWM</small><strong id="leftMotorPwmValue">--</strong></div>
+          <div><small>右 PWM</small><strong id="rightMotorPwmValue">--</strong></div>
+          <div><small>比例误差</small><strong id="straightErrorValue">--</strong></div>
+          <div><small>修正 CPS</small><strong id="straightTrimValue">--</strong></div>
+        </div>
+      </section>
+
+      <button class="disabled-feature" type="button" disabled>XY 摇杆 · 待启用</button>
     </section>
 
-    <section class="card joystick-card" aria-labelledby="joystickTitle" aria-disabled="true">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">自定义遥控</p>
-          <h2 id="joystickTitle">XY 摇杆</h2>
+    <section class="tab-panel" id="sensorTab" data-panel="sensor" hidden>
+      <section class="card sensor-card">
+        <div class="section-title"><h2>HC-SR04 + SG90</h2><span id="sensorLock">需进入传感模式</span></div>
+        <div class="sensor-hero">
+          <div class="distance"><strong id="distanceValue">--</strong><span>cm</span></div>
+          <div class="data-grid two">
+            <div><small>建议方向</small><strong id="routeValue">NONE</strong></div>
+            <div><small>舵机</small><strong id="servoValue">--</strong></div>
+            <div><small>控制</small><strong id="servoControlValue">AUTO</strong></div>
+            <div><small>阈值</small><strong id="thresholdValue">--</strong></div>
+          </div>
         </div>
-        <span class="coming-soon">暂未启用</span>
-      </div>
-      <div class="joystick-layout">
-        <div class="joystick-preview" aria-hidden="true">
-          <span class="axis axis-x">X</span><span class="axis axis-y">Y</span><span class="joystick-knob"></span>
+        <div class="side-distance"><span>左侧 <strong id="leftDistanceValue">--</strong> cm</span><span>右侧 <strong id="rightDistanceValue">--</strong> cm</span></div>
+        <label class="range-row" for="servoAngle"><span>手动角度</span><output id="servoAngleValue">90°</output></label>
+        <input class="range sensor-only" id="servoAngle" type="range" min="0" max="180" value="90" disabled>
+        <div class="button-grid">
+          <button class="button primary sensor-only" id="sendServoButton" type="button" disabled>转到 90°</button>
+          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_L" type="button" disabled>左看</button>
+          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_C" type="button" disabled>回中</button>
+          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_R" type="button" disabled>右看</button>
+          <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>自动</button>
+          <button class="button ghost sensor-only" data-command="SENSOR" type="button" disabled>刷新</button>
         </div>
-        <div>
-          <p>后续把摇杆分解为转向 X 与前后 Y，再混合成左右轮指令：</p>
-          <div class="mix-formula"><code>左轮 = Y + X</code><code>右轮 = Y − X</code></div>
-          <p class="muted-copy">本版本只保留结构和计算约定，不监听触摸，也不发送摇杆命令。</p>
-        </div>
-      </div>
+      </section>
     </section>
 
-    <section class="card mode-panel" id="sensorPanel" aria-labelledby="sensorTitle">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">传感器台架模式</p>
-          <h2 id="sensorTitle">传感器检查</h2>
+    <section class="tab-panel" id="tuningTab" data-panel="tuning" hidden>
+      <section class="card tuning-card">
+        <div class="section-title"><h2>参数工作台</h2><span id="tuningStatus">未读取</span></div>
+        <div class="button-grid tuning-actions">
+          <button class="button ghost requires-connection" id="readParamsButton" type="button" disabled>读取</button>
+          <button class="button ghost requires-connection" id="stageParamsButton" type="button" disabled>暂存</button>
+          <button class="button primary requires-connection" id="applyParamsButton" type="button" disabled>保存</button>
+          <button class="button ghost requires-connection" id="cancelParamsButton" type="button" disabled>取消</button>
         </div>
-        <span class="panel-lock" id="sensorLock">请先进入传感器模式</span>
-      </div>
-      <p class="section-copy">该模式启动编码器、电压、HC-SR04 与舵机测试，但不会自行驱动车轮。距离与扫描结果继续显示在车载 OLED。</p>
-      <div class="inline-actions">
-        <button class="button primary sensor-only" data-command="ENC" type="button" disabled>读取编码器</button>
-        <button class="button secondary sensor-only" data-command="CHECK" type="button" disabled>查询模式与参数</button>
-      </div>
+
+        <details class="parameter-group" open>
+          <summary>双轮速度</summary>
+          <div class="parameter-grid">
+            <label>左目标 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>右目标 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>前馈 PWM<input class="param-input requires-connection" data-param="SPEED_FF_PCT" type="number" min="0" max="100" value="60" disabled></label>
+            <label>最大 PWM<input class="param-input requires-connection" data-param="SPEED_MAX_PCT" type="number" min="0" max="100" value="80" disabled></label>
+            <label>Kp ×10000<input class="param-input requires-connection" data-param="SPEED_KP_X10000" type="number" min="0" max="1000" value="50" disabled></label>
+            <label>Ki ×10000<input class="param-input requires-connection" data-param="SPEED_KI_X10000" type="number" min="0" max="1000" value="40" disabled></label>
+          </div>
+        </details>
+
+        <details class="parameter-group">
+          <summary>直线修正</summary>
+          <div class="parameter-grid">
+            <label>直线 Kp ×1000<input class="param-input requires-connection" data-param="STRAIGHT_KP_X1000" type="number" min="0" max="1000" value="100" disabled></label>
+            <label>死区 count<input class="param-input requires-connection" data-param="STRAIGHT_DB_COUNT" type="number" min="0" max="1000" value="10" disabled></label>
+            <label>最大修正 CPS<input class="param-input requires-connection" data-param="STRAIGHT_MAX_CPS" type="number" min="0" max="1000" value="250" disabled></label>
+          </div>
+        </details>
+
+        <details class="parameter-group">
+          <summary>超声波 / 舵机</summary>
+          <div class="parameter-grid">
+            <label>障碍阈值 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="0" max="400" value="30" disabled></label>
+            <label>测距周期 ms<input class="param-input requires-connection" data-param="US_PERIOD_MS" type="number" min="60" max="1000" value="70" disabled></label>
+            <label>左角度<input class="param-input requires-connection" data-param="SERVO_L" type="number" min="0" max="180" value="150" disabled></label>
+            <label>中角度<input class="param-input requires-connection" data-param="SERVO_C" type="number" min="0" max="180" value="90" disabled></label>
+            <label>右角度<input class="param-input requires-connection" data-param="SERVO_R" type="number" min="0" max="180" value="30" disabled></label>
+            <label>稳定时间 ms<input class="param-input requires-connection" data-param="SERVO_SETTLE_MS" type="number" min="100" max="2000" value="350" disabled></label>
+            <label>重扫间隔 ms<input class="param-input requires-connection" data-param="RESCAN_MS" type="number" min="0" max="5000" value="700" disabled></label>
+          </div>
+        </details>
+      </section>
     </section>
 
-    <section class="card telemetry-card" aria-labelledby="telemetryTitle">
-      <div class="section-heading">
-        <div>
-          <p class="section-kicker">运行反馈</p>
-          <h2 id="telemetryTitle">调试数据</h2>
+    <section class="tab-panel" id="logsTab" data-panel="logs" hidden>
+      <section class="card log-card">
+        <div class="section-title"><h2>实验日志</h2><span id="recordStatus">0 条</span></div>
+        <input class="note-input" id="runNote" type="text" placeholder="备注：电压 / 地面 / 距离 / 偏移方向">
+        <div class="log-controls">
+          <select id="sampleInterval" aria-label="采样间隔"><option value="500">0.5s</option><option value="1000" selected>1s</option><option value="2000">2s</option></select>
+          <button class="button ghost requires-connection" id="sampleNowButton" type="button" disabled>采样</button>
+          <button class="button primary requires-connection" id="recordButton" type="button" disabled>连续采样</button>
+          <button class="button ghost" id="exportLogButton" type="button" disabled>导出 CSV</button>
+          <button class="button ghost" id="clearLogButton" type="button">清空</button>
         </div>
-        <button class="text-button requires-connection" id="refreshButton" type="button" disabled>刷新全部</button>
-      </div>
-      <div class="telemetry-grid">
-        <div class="data-tile"><span>当前模式</span><strong id="modeValue">STANDBY</strong></div>
-        <div class="data-tile"><span>当前动作</span><strong id="motionValue">STOP</strong></div>
-        <div class="data-tile"><span>左轮 CPS</span><strong id="leftCpsValue">--</strong></div>
-        <div class="data-tile"><span>右轮 CPS</span><strong id="rightCpsValue">--</strong></div>
-        <div class="data-tile"><span>累计直线误差</span><strong id="straightErrorValue">--</strong></div>
-        <div class="data-tile"><span>直线修正 CPS</span><strong id="straightTrimValue">--</strong></div>
-      </div>
-      <div class="motor-grid">
-        <div class="data-tile"><span>左前 PWM</span><strong id="leftForwardPwmValue">--</strong></div>
-        <div class="data-tile"><span>左后 PWM</span><strong id="leftBackwardPwmValue">--</strong></div>
-        <div class="data-tile"><span>右前 PWM</span><strong id="rightForwardPwmValue">--</strong></div>
-        <div class="data-tile"><span>右后 PWM</span><strong id="rightBackwardPwmValue">--</strong></div>
-      </div>
-      <div class="inline-actions diagnostics-actions">
-        <button class="button secondary requires-connection" data-command="ENC" type="button" disabled>ENC</button>
-        <button class="button secondary requires-connection" data-command="MOTOR" type="button" disabled>MOTOR</button>
-        <button class="button secondary requires-connection" data-command="CHECK" type="button" disabled>CHECK</button>
-      </div>
-    </section>
-
-    <section class="card log-card" aria-labelledby="logTitle">
-      <div class="section-heading compact">
-        <div>
-          <p class="section-kicker">串口记录</p>
-          <h2 id="logTitle">通信日志</h2>
-        </div>
-        <button class="text-button" id="clearLogButton" type="button">清空</button>
-      </div>
-      <div class="log-window" id="logWindow" role="log" aria-live="polite">
-        <p class="muted">等待蓝牙数据…</p>
-      </div>
+        <div class="log-window" id="logWindow" role="log" aria-live="polite"><p class="muted">等待数据…</p></div>
+      </section>
     </section>
   </main>
-
   <script src="app.js"></script>
 </body>
 </html>
