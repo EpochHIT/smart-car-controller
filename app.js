@@ -15,6 +15,7 @@ const ui = {
   turn90Status: $("turn90Status"), calibrateLeftButton: $("calibrateLeftButton"),
   calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
   turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
+  driveSpeedSummary: $("driveSpeedSummary"), speedUp5Button: $("speedUp5Button"), speedUp10Button: $("speedUp10Button"),
   leftCpsValue: $("leftCpsValue"), rightCpsValue: $("rightCpsValue"),
   leftTargetValue: $("leftTargetValue"), rightTargetValue: $("rightTargetValue"),
   leftMotorPwmValue: $("leftMotorPwmValue"), rightMotorPwmValue: $("rightMotorPwmValue"),
@@ -166,8 +167,8 @@ function joystickFromPointer(event) {
   }
   let x = Math.round(dx / radius * 100);
   let y = Math.round(-dy / radius * 100);
-  if (Math.abs(x) < 12) x = 0;
-  if (Math.abs(y) < 12) y = 0;
+  if (Math.abs(x) <= 12) x = 0;
+  if (Math.abs(y) <= 12) y = 0;
   queueJoystick(x, y);
 }
 
@@ -177,6 +178,25 @@ function updateTurn90Status() {
   if (left && right) ui.turn90Status.textContent = `左 ${left} · 右 ${right}`;
   else if (left || right) ui.turn90Status.textContent = left ? `左 ${left} · 右未标定` : `左未标定 · 右 ${right}`;
   else ui.turn90Status.textContent = "未标定";
+}
+
+const driveTargetKeys = ["TARGET_L_CPS", "TARGET_R_CPS", "TARGET_REV_L_CPS", "TARGET_REV_R_CPS"];
+
+function updateDriveSpeedSummary() {
+  const valueOf = (key) => Number(paramInputs.get(key)?.value || 0);
+  const forward = Math.round((valueOf("TARGET_L_CPS") + valueOf("TARGET_R_CPS")) / 2);
+  const reverse = Math.round((valueOf("TARGET_REV_L_CPS") + valueOf("TARGET_REV_R_CPS")) / 2);
+  const minimum = valueOf("JOY_MIN_CPS");
+  ui.driveSpeedSummary.textContent = `低速 ${minimum} · 前 ${forward} · 倒 ${reverse} CPS`;
+}
+
+function scaleDriveTargets(factor) {
+  driveTargetKeys.forEach((key) => {
+    const input = paramInputs.get(key);
+    input.value = Math.min(8000, Math.round(Number(input.value) * factor));
+  });
+  updateDriveSpeedSummary();
+  ui.tuningStatus.textContent = "待暂存";
 }
 
 function setMotion(motion) {
@@ -428,6 +448,7 @@ function processLine(line) {
     knownParams[param[1]] = Number(param[2]);
     paramInputs.get(param[1]).value = param[2];
     if (param[1] === "TURN90_L_COUNT" || param[1] === "TURN90_R_COUNT") updateTurn90Status();
+    if (driveTargetKeys.includes(param[1]) || param[1] === "JOY_MIN_CPS") updateDriveSpeedSummary();
   }
   if (/^PENDING=YES$/i.test(line)) ui.tuningStatus.textContent = "有暂存";
   if (/^PENDING=NO$/i.test(line)) ui.tuningStatus.textContent = "已同步";
@@ -627,6 +648,11 @@ ui.calibrateLeftButton.addEventListener("click", () => startTurnCalibration("lef
 ui.calibrateRightButton.addEventListener("click", () => startTurnCalibration("right"));
 ui.finishTurnCalibrationButton.addEventListener("click", finishTurnCalibration);
 ui.saveTurnCalibrationButton.addEventListener("click", saveTurnCalibration);
+ui.speedUp5Button.addEventListener("click", () => scaleDriveTargets(1.05));
+ui.speedUp10Button.addEventListener("click", () => scaleDriveTargets(1.10));
+[...driveTargetKeys, "JOY_MIN_CPS"].forEach((key) => {
+  paramInputs.get(key).addEventListener("input", updateDriveSpeedSummary);
+});
 
 ui.servoAngle.addEventListener("input", updateServoReadout);
 ui.sendServoButton.addEventListener("click", () => sendCommand(`SERVO ${ui.servoAngle.value}`));
@@ -675,4 +701,5 @@ setConnected(false);
 selectTab("remote");
 drawJoystick(0, 0);
 updateTurn90Status();
+updateDriveSpeedSummary();
 updateServoReadout();

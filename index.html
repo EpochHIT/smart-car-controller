@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-joystick">
+  <link rel="stylesheet" href="styles.css?v=20260829-speedmap">
 </head>
 <body>
   <main class="app-shell">
@@ -137,20 +137,22 @@
 
         <details class="parameter-group" open>
           <summary>速度与转弯</summary>
+          <div class="speed-stepper"><span id="driveSpeedSummary">低速 3900 · 前 4300 · 倒 4300 CPS</span><button class="button ghost requires-connection" id="speedUp5Button" type="button" disabled>整体 +5%</button><button class="button ghost requires-connection" id="speedUp10Button" type="button" disabled>整体 +10%</button></div>
           <div class="parameter-grid">
-            <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>前进右 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>倒车左 CPS<input class="param-input requires-connection" data-param="TARGET_REV_L_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
-            <label>倒车右 CPS<input class="param-input requires-connection" data-param="TARGET_REV_R_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>前进右 CPS<input class="param-input requires-connection" data-param="TARGET_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>倒车左 CPS<input class="param-input requires-connection" data-param="TARGET_REV_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>倒车右 CPS<input class="param-input requires-connection" data-param="TARGET_REV_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
             <label>转弯 CPS<input class="param-input requires-connection" data-param="TURN_CPS" type="number" min="0" max="8000" value="3000" disabled></label>
             <label>左 90° count<input class="param-input requires-connection" data-param="TURN90_L_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
             <label>右 90° count<input class="param-input requires-connection" data-param="TURN90_R_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
+            <label>摇杆最低 CPS<input class="param-input requires-connection" data-param="JOY_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
             <label>前馈 PWM<input class="param-input requires-connection" data-param="SPEED_FF_PCT" type="number" min="0" max="100" value="60" disabled></label>
             <label>最大 PWM<input class="param-input requires-connection" data-param="SPEED_MAX_PCT" type="number" min="0" max="100" value="80" disabled></label>
             <label>Kp ×10000<input class="param-input requires-connection" data-param="SPEED_KP_X10000" type="number" min="0" max="1000" value="50" disabled></label>
             <label>Ki ×10000<input class="param-input requires-connection" data-param="SPEED_KI_X10000" type="number" min="0" max="1000" value="40" disabled></label>
           </div>
-          <p class="group-hint">摇杆 100% = 对应方向的目标 CPS；最大 PWM 只是闭环输出上限。</p>
+          <p class="group-hint">越过中心死区后，从“摇杆最低 CPS”连续映射到方向上限；最大 PWM 只是闭环输出上限。</p>
         </details>
 
         <details class="parameter-group">
@@ -192,6 +194,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-joystick"></script>
+  <script src="app.js?v=20260829-speedmap"></script>
 </body>
 </html>

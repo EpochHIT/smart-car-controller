@@ -123,6 +123,9 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .tuning-actions { grid-template-columns: repeat(4, 1fr); margin: 0 0 12px; }
 .parameter-group { margin-top: 8px; border: 1px solid var(--line); border-radius: 12px; background: rgba(3, 11, 20, .34); }
 .parameter-group > summary { padding: 12px; cursor: pointer; color: #d9e6f1; font-weight: 850; }
+.speed-stepper { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; padding: 0 11px 10px; }
+.speed-stepper span { color: var(--cyan); font: 800 .72rem ui-monospace, Consolas, monospace; }
+.speed-stepper .button { min-height: 34px; padding: 6px 9px; font-size: .7rem; }
 .parameter-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0 11px 12px; }
 .parameter-grid label { color: var(--muted); font-size: .72rem; font-weight: 750; }
 .param-input, .note-input, select { width: 100%; margin-top: 5px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: #071321; color: var(--text); }
@@ -157,6 +160,8 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
   .joystick-info small { display: none; }
   .sensor-hero { grid-template-columns: 1fr; }
   .button-grid { grid-template-columns: repeat(2, 1fr); }
+  .speed-stepper { grid-template-columns: 1fr 1fr; }
+  .speed-stepper span { grid-column: 1 / -1; }
   .parameter-grid { grid-template-columns: 1fr; }
 }
 
