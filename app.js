@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 14;
+const EXPECTED_PROTOCOL_VERSION = 15;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
@@ -19,6 +19,10 @@ const ui = {
   leftDistanceValue: $("leftDistanceValue"), rightDistanceValue: $("rightDistanceValue"),
   lineLeftTransValue: $("lineLeftTransValue"), lineLeftLongValue: $("lineLeftLongValue"),
   lineRightTransValue: $("lineRightTransValue"), lineRightLongValue: $("lineRightLongValue"),
+  lineLeftTransBar: $("lineLeftTransBar"), lineLeftLongBar: $("lineLeftLongBar"),
+  lineRightTransBar: $("lineRightTransBar"), lineRightLongBar: $("lineRightLongBar"),
+  lineLeftTransMeta: $("lineLeftTransMeta"), lineLeftLongMeta: $("lineLeftLongMeta"),
+  lineRightTransMeta: $("lineRightTransMeta"), lineRightLongMeta: $("lineRightLongMeta"),
   lineErrorValue: $("lineErrorValue"), trackStateValue: $("trackStateValue"),
   trackRunValue: $("trackRunValue"), avoidanceValue: $("avoidanceValue"),
   avoidanceStatus: $("avoidanceStatus"), trackStartButton: $("trackStartButton"),
@@ -28,6 +32,10 @@ const ui = {
   lineCalibrationValue: $("lineCalibrationValue"), lineCalibrationButton: $("lineCalibrationButton"),
   firmwareWarning: $("firmwareWarning"),
   copySensorButton: $("copySensorButton"),
+  sensorChart: $("sensorChart"), sensorScenario: $("sensorScenario"),
+  sensorSessionNote: $("sensorSessionNote"), sensorCaptureStatus: $("sensorCaptureStatus"),
+  newSensorSessionButton: $("newSensorSessionButton"), copySensorSessionButton: $("copySensorSessionButton"),
+  exportSensorSessionButton: $("exportSensorSessionButton"),
   servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
   applyParamsButton: $("applyParamsButton"), cancelParamsButton: $("cancelParamsButton"),
@@ -59,6 +67,9 @@ const telemetry = {
 
 const knownParams = {};
 const sampleRecords = [];
+const sensorHistory = [];
+const SENSOR_HISTORY_LIMIT = 2000;
+const SENSOR_CHART_POINTS = 120;
 let paramsLoaded = false;
 let serialPort = null;
 let lastGrantedSerialPort = null;
@@ -89,6 +100,7 @@ let pendingModeAck = null;
 let resumePollingAfterParams = false;
 let paramsRequestPending = false;
 let lastLineSequence = null;
+let sensorSessionStartedAt = Date.now();
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -172,9 +184,184 @@ function captureSample(mode, text) {
   sampleRecords.push({
     time: new Date().toISOString(),
     elapsed_ms: sampleStartedAt ? Date.now() - sampleStartedAt : 0,
+    note: ui.runNote.value.trim(),
+    scene: mode === "sensor" ? ui.sensorScenario.value : "",
     sample_type: mode, text, ...snapshot(), mode
   });
   updateLogProfile();
+}
+
+function sensorScenarioLabel() {
+  return ui.sensorScenario.selectedOptions[0]?.textContent || ui.sensorScenario.value;
+}
+
+function sensorRange(key) {
+  if (sensorHistory.length === 0) return null;
+  let minimum = 4095;
+  let maximum = 0;
+  for (const record of sensorHistory) {
+    const value = record[key];
+    if (value < minimum) minimum = value;
+    if (value > maximum) maximum = value;
+  }
+  return { minimum, maximum, span: maximum - minimum };
+}
+
+function updateSensorMeters() {
+  const channels = [
+    { value: telemetry.lineLeftTrans, percent: telemetry.lineLeftTransPct, key: "left_horizontal", output: ui.lineLeftTransValue, bar: ui.lineLeftTransBar, meta: ui.lineLeftTransMeta },
+    { value: telemetry.lineLeftLong, percent: telemetry.lineLeftLongPct, key: "left_vertical", output: ui.lineLeftLongValue, bar: ui.lineLeftLongBar, meta: ui.lineLeftLongMeta },
+    { value: telemetry.lineRightLong, percent: telemetry.lineRightLongPct, key: "right_vertical", output: ui.lineRightLongValue, bar: ui.lineRightLongBar, meta: ui.lineRightLongMeta },
+    { value: telemetry.lineRightTrans, percent: telemetry.lineRightTransPct, key: "right_horizontal", output: ui.lineRightTransValue, bar: ui.lineRightTransBar, meta: ui.lineRightTransMeta }
+  ];
+  for (const channel of channels) {
+    if (!Number.isFinite(channel.value)) {
+      channel.output.textContent = "--";
+      channel.bar.style.width = "0";
+      channel.meta.textContent = "等待数据";
+      continue;
+    }
+    channel.output.textContent = channel.value;
+    channel.bar.style.width = `${Math.max(0, Math.min(100, channel.value * 100 / 4095)).toFixed(1)}%`;
+    const range = sensorRange(channel.key);
+    const relative = state.lineCalibrated && Number.isFinite(channel.percent) ? `标定相对值 ${channel.percent}%` : "未标定";
+    const boundary = channel.value <= 5 ? " · 接近 0" : channel.value >= 4090 ? " · 接近满量程" : "";
+    channel.meta.textContent = range ? `${relative} · 本组 ${range.minimum}–${range.maximum}（Δ${range.span}）${boundary}` : `${relative}${boundary}`;
+  }
+}
+
+function drawSensorChart() {
+  const canvas = ui.sensorChart;
+  if (!canvas) return;
+  const width = Math.max(280, canvas.clientWidth || 640);
+  const height = Math.max(210, canvas.clientHeight || 250);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelWidth = Math.round(width * dpr);
+  const pixelHeight = Math.round(height * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  const context = canvas.getContext("2d");
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const margin = { left: 42, right: 10, top: 13, bottom: 24 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  context.font = "10px ui-monospace, Consolas, monospace";
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  for (const tick of [0, 1024, 2048, 3072, 4095]) {
+    const y = margin.top + chartHeight - tick / 4095 * chartHeight;
+    context.strokeStyle = "rgba(145, 167, 187, .14)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(margin.left, y);
+    context.lineTo(width - margin.right, y);
+    context.stroke();
+    context.fillStyle = "#70869a";
+    context.fillText(String(tick), margin.left - 6, y);
+  }
+  const records = sensorHistory.slice(-SENSOR_CHART_POINTS);
+  if (records.length === 0) {
+    context.fillStyle = "#70869a";
+    context.textAlign = "center";
+    context.fillText("连接后自动记录四路原始值", margin.left + chartWidth / 2, margin.top + chartHeight / 2);
+    return;
+  }
+  const series = [
+    { key: "left_horizontal", color: "#43d5ff" },
+    { key: "left_vertical", color: "#b38cff" },
+    { key: "right_vertical", color: "#ffbd66" },
+    { key: "right_horizontal", color: "#55e5a7" }
+  ];
+  for (const item of series) {
+    context.strokeStyle = item.color;
+    context.lineWidth = 1.7;
+    context.lineJoin = "round";
+    context.beginPath();
+    records.forEach((record, index) => {
+      const x = margin.left + (records.length === 1 ? chartWidth : index * chartWidth / (records.length - 1));
+      const y = margin.top + chartHeight - record[item.key] / 4095 * chartHeight;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.stroke();
+  }
+  const elapsed = Math.round((records.at(-1).time_ms - records[0].time_ms) / 1000);
+  context.fillStyle = "#70869a";
+  context.textAlign = "left";
+  context.textBaseline = "bottom";
+  context.fillText(`最近 ${records.length} 条 · ${elapsed}s`, margin.left, height - 3);
+}
+
+function updateSensorCaptureStatus() {
+  const count = sensorHistory.length;
+  const elapsed = count ? Math.round((sensorHistory.at(-1).time_ms - sensorSessionStartedAt) / 1000) : 0;
+  ui.sensorCaptureStatus.textContent = `自动记录 · ${count} 条 · ${elapsed}s · 当前：${sensorScenarioLabel()}`;
+  ui.copySensorSessionButton.disabled = count === 0;
+  ui.exportSensorSessionButton.disabled = count === 0;
+  updateSensorMeters();
+  drawSensorChart();
+}
+
+function captureSensorHistory() {
+  const raw = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong];
+  if (!raw.every(Number.isFinite)) return;
+  const now = Date.now();
+  sensorHistory.push({
+    time: new Date(now).toISOString(), time_ms: now,
+    elapsed_ms: now - sensorSessionStartedAt,
+    scene: ui.sensorScenario.value, scene_label: sensorScenarioLabel(), note: ui.sensorSessionNote.value.trim(),
+    sequence: telemetry.lineSequence,
+    left_horizontal: raw[0], left_vertical: raw[1], right_horizontal: raw[2], right_vertical: raw[3],
+    left_horizontal_pct: telemetry.lineLeftTransPct, left_vertical_pct: telemetry.lineLeftLongPct,
+    right_horizontal_pct: telemetry.lineRightTransPct, right_vertical_pct: telemetry.lineRightLongPct,
+    line_error_x100: telemetry.lineErrorX100, track_state: state.trackState, track_running: state.trackRunning ? 1 : 0
+  });
+  if (sensorHistory.length > SENSOR_HISTORY_LIMIT) sensorHistory.splice(0, sensorHistory.length - SENSOR_HISTORY_LIMIT);
+  updateSensorCaptureStatus();
+}
+
+function startNewSensorSession() {
+  sensorHistory.length = 0;
+  sensorSessionStartedAt = Date.now();
+  updateSensorCaptureStatus();
+  setMessage(`已开始新一组：${sensorScenarioLabel()}`);
+}
+
+function sensorSessionTable(separator) {
+  const columns = [
+    ["时间", "time"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"], ["序号", "sequence"],
+    ["左横_PA4", "left_horizontal"], ["左竖_PA5", "left_vertical"], ["右竖_PB0", "right_vertical"], ["右横_PB1", "right_horizontal"],
+    ["左横相对值", "left_horizontal_pct"], ["左竖相对值", "left_vertical_pct"], ["右竖相对值", "right_vertical_pct"], ["右横相对值", "right_horizontal_pct"],
+    ["误差x100", "line_error_x100"], ["直线状态", "track_state"], ["是否运行", "track_running"]
+  ];
+  const encode = separator === "," ? csvCell : (value) => String(value ?? "").replace(/[\t\r\n]+/g, " ");
+  return [columns.map(([label]) => encode(label)).join(separator),
+    ...sensorHistory.map((record) => columns.map(([, key]) => encode(record[key])).join(separator))].join("\n");
+}
+
+async function copySensorSession() {
+  if (sensorHistory.length === 0) return;
+  const text = sensorSessionTable("\t");
+  try {
+    await navigator.clipboard.writeText(text);
+    setMessage(`已复制本组 ${sensorHistory.length} 条数据，可直接粘贴给我或放进表格`);
+  } catch {
+    setMessage("浏览器不能直接复制，请使用“导出 CSV”", true);
+  }
+}
+
+function exportSensorSession() {
+  if (sensorHistory.length === 0) return;
+  const blob = new Blob(["\ufeff", sensorSessionTable(",")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `sensor-${ui.sensorScenario.value}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function selectTab(name) {
@@ -187,6 +374,7 @@ function selectTab(name) {
     panel.hidden = !active;
   });
   if (name === "logs") updateLogProfile();
+  if (name === "sensor") drawSensorChart();
 }
 
 function beginModeAck(mode) {
@@ -341,6 +529,7 @@ function setLineCalibrated(calibrated) {
   state.lineCalibrated = calibrated;
   ui.lineCalibrationValue.textContent = calibrated ? "已标定，可启动" : "首次需标定一次";
   ui.lineCalibrationValue.classList.toggle("ready", calibrated);
+  updateSensorMeters();
   updateAvailability();
 }
 
@@ -623,12 +812,6 @@ function showDistance(value) {
   return value === "OUT" || value === null ? "--" : String(value);
 }
 
-function showLineSensor(raw, percent) {
-  if (!Number.isFinite(raw)) return "未收到";
-  if (!state.lineCalibrated) return `${raw} · 未标定`;
-  return Number.isFinite(percent) ? `${raw} · ${percent}%` : `${raw} · 百分比未收到`;
-}
-
 function numberField(fields, ...keys) {
   for (const key of keys) {
     if (fields[key] === undefined || fields[key] === "") continue;
@@ -812,10 +995,7 @@ function processLine(line) {
     telemetry.trackEndMs = numberField(fields, "ENDMS");
     telemetry.trackEndPercent = endNormalized;
     if (fields.RUN !== undefined) setTrackRunning(fields.RUN === "1");
-    ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
-    ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
-    ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
-    ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
+    captureSensorHistory();
     ui.lineErrorValue.textContent = state.lineCalibrated && Number.isFinite(telemetry.lineErrorX100) ?
       `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}` : "原始 ADC";
     ui.trackPValue.textContent = telemetry.trackP ?? "--";
@@ -1029,10 +1209,6 @@ function changedParameterEntries() {
     setMessage("低档基础速度不能高于高档基础速度", true);
     return null;
   }
-  if (valueOf("TRACK_DETECT_PCT") > valueOf("TRACK_BRANCH_PCT")) {
-    setMessage("有线阈值不能高于转弯/十字阈值", true);
-    return null;
-  }
   const calibrationPairs = [
     ["MIN_L_TRANS", "MAX_L_TRANS"], ["MIN_L_LONG", "MAX_L_LONG"],
     ["MIN_R_TRANS", "MAX_R_TRANS"], ["MIN_R_LONG", "MAX_R_LONG"]
@@ -1140,12 +1316,11 @@ function exportCsv() {
   const mode = currentLogMode();
   const records = recordsForMode(mode);
   const remoteColumns = ["time", "elapsed_ms", "note", "motion", "remote_speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv"];
-  const sensorColumns = ["time", "elapsed_ms", "note", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
+  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
   const columns = mode === "sensor" ? sensorColumns : remoteColumns;
   const rows = [columns.join(",")];
   for (const record of records) {
-    const row = { ...record, note: ui.runNote.value };
-    rows.push(columns.map((column) => csvCell(row[column])).join(","));
+    rows.push(columns.map((column) => csvCell(record[column])).join(","));
   }
   const blob = new Blob(["\ufeff", rows.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1246,16 +1421,16 @@ ui.lineCalibrationButton.addEventListener("click", async () => {
 });
 
 ui.copySensorButton.addEventListener("click", async () => {
-  const values = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong];
+  const values = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightLong, telemetry.lineRightTrans];
   if (values.some((value) => !Number.isFinite(value))) {
     setMessage("四路数据还没有全部收到，请重新读取", true);
     return;
   }
-  const percentages = [telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightTransPct, telemetry.lineRightLongPct];
+  const percentages = [telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightLongPct, telemetry.lineRightTransPct];
   const percent = state.lineCalibrated && percentages.every(Number.isFinite) ?
-    `；百分比 ${telemetry.lineLeftTransPct}/${telemetry.lineLeftLongPct}/${telemetry.lineRightTransPct}/${telemetry.lineRightLongPct}` :
-    `；${state.lineCalibrated ? "百分比数据不完整" : "百分比未标定"}`;
-  const text = `左横 ${values[0]}，左竖 ${values[1]}，右横 ${values[2]}，右竖 ${values[3]}${percent}`;
+    `；标定相对值 ${percentages.join("/")}` :
+    `；${state.lineCalibrated ? "标定相对值不完整" : "未标定"}`;
+  const text = `左横 ${values[0]}，左竖 ${values[1]}，右竖 ${values[2]}，右横 ${values[3]}${percent}`;
   try {
     await navigator.clipboard.writeText(text);
     setMessage("四路数据已复制，可以直接发给我");
@@ -1263,6 +1438,13 @@ ui.copySensorButton.addEventListener("click", async () => {
     setMessage(text);
   }
 });
+
+ui.sensorScenario.addEventListener("change", updateSensorCaptureStatus);
+ui.newSensorSessionButton.addEventListener("click", startNewSensorSession);
+ui.copySensorSessionButton.addEventListener("click", copySensorSession);
+ui.exportSensorSessionButton.addEventListener("click", exportSensorSession);
+ui.sensorChart.closest("details")?.addEventListener("toggle", drawSensorChart);
+window.addEventListener("resize", drawSensorChart);
 
 ui.readParamsButton.addEventListener("click", requestParameters);
 ui.applyParamsButton.addEventListener("click", async () => {
@@ -1326,3 +1508,4 @@ setLineCalibrating(false);
 updateTurn90Status();
 updateServoReadout();
 updateLogProfile();
+updateSensorCaptureStatus();

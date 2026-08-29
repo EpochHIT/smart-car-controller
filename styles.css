@@ -10,6 +10,7 @@
   --blue: #258fec;
   --green: #55e5a7;
   --orange: #ffbd66;
+  --violet: #b38cff;
   --red: #ff6378;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
@@ -132,6 +133,35 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .firmware-warning { margin: 9px 0 0; padding: 9px 10px; border: 1px solid rgba(255, 171, 64, .42); border-radius: 8px; background: rgba(255, 171, 64, .08); color: var(--orange); font-size: .72rem; line-height: 1.5; }
 .orientation-note { margin: 9px 0; padding: 9px 10px; border-left: 3px solid var(--cyan); border-radius: 7px; background: rgba(46, 229, 255, .06); color: var(--muted); font-size: .72rem; line-height: 1.65; }
 .orientation-note strong { color: #d9e6f1; }
+.sensor-meter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.sensor-meter { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 11px; background: rgba(3, 11, 20, .38); }
+.sensor-meter small, .sensor-meter em { display: block; color: var(--muted); font-size: .65rem; font-style: normal; }
+.sensor-meter strong { display: block; margin: 4px 0 7px; font: 900 1.22rem ui-monospace, Consolas, monospace; }
+.sensor-meter .meter-track { height: 6px; overflow: hidden; border-radius: 99px; background: rgba(145, 167, 187, .12); }
+.sensor-meter .meter-track span { display: block; width: 0; height: 100%; border-radius: inherit; transition: width .18s ease; }
+.sensor-meter em { margin-top: 7px; overflow-wrap: anywhere; line-height: 1.4; }
+.sensor-meter.cyan strong { color: var(--cyan); }
+.sensor-meter.cyan .meter-track span { background: var(--cyan); }
+.sensor-meter.violet strong { color: var(--violet); }
+.sensor-meter.violet .meter-track span { background: var(--violet); }
+.sensor-meter.orange strong { color: var(--orange); }
+.sensor-meter.orange .meter-track span { background: var(--orange); }
+.sensor-meter.green strong { color: var(--green); }
+.sensor-meter.green .meter-track span { background: var(--green); }
+.waveform-hint { margin: 10px 0; }
+.capture-label-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.capture-label-row label { color: var(--muted); font-size: .68rem; font-weight: 750; }
+.capture-label-row select, .capture-label-row input { width: 100%; min-height: 40px; margin-top: 5px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: #071321; color: var(--text); }
+#sensorChart { display: block; width: 100%; height: 250px; margin-top: 12px; border: 1px solid var(--line); border-radius: 11px; background: #050d17; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 2px 0; color: var(--muted); font-size: .67rem; }
+.chart-legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 5px; border-radius: 99px; vertical-align: middle; background: currentColor; }
+.chart-legend .cyan { color: var(--cyan); }
+.chart-legend .violet { color: var(--violet); }
+.chart-legend .orange { color: var(--orange); }
+.chart-legend .green { color: var(--green); }
+.capture-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 11px; }
+.capture-actions .button { min-width: 0; padding-left: 7px; padding-right: 7px; }
+.capture-status { margin: 9px 1px 0; color: var(--muted); font-size: .69rem; }
 .pid-guide { margin: 0 0 12px; padding: 10px; border-radius: 9px; background: rgba(46, 229, 255, .06); color: var(--muted); font-size: .72rem; line-height: 1.65; }
 .pid-guide strong { color: var(--cyan); }
 .compact-params { margin-top: 10px; }
@@ -180,6 +210,7 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
   .data-grid.four { grid-template-columns: repeat(2, 1fr); }
   .log-controls { grid-template-columns: repeat(2, 1fr); }
   .log-controls select { min-height: 42px; }
+  .capture-label-row { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 370px) {
