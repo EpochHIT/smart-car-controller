@@ -1,28 +1,59 @@
 "use strict";
 
-// JDY 模块使用的 BLE 服务和特征值 UUID。
 const SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
 const CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
 
 const $ = (id) => document.getElementById(id);
 const ui = {
-  connectionState: $("connectionState"), connectionText: $("connectionText"),
-  connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  deviceName: $("deviceName"), message: $("message"),
-  distanceGauge: $("distanceGauge"), distanceValue: $("distanceValue"), distanceUnit: $("distanceUnit"),
-  obstacleState: $("obstacleState"), obstacleChinese: $("obstacleChinese"), obstacleValue: $("obstacleValue"),
-  speedSlider: $("speedSlider"), speedReadout: $("speedReadout"), speedPresets: $("speedPresets"),
-  sensorOnButton: $("sensorOnButton"), sensorOffButton: $("sensorOffButton"),
-  obstacleOnButton: $("obstacleOnButton"), obstacleOffButton: $("obstacleOffButton"),
-  l1Value: $("l1Value"), l2Value: $("l2Value"), r1Value: $("r1Value"), r2Value: $("r2Value"),
-  errorValue: $("errorValue"), mlValue: $("mlValue"), mrValue: $("mrValue"),
-  aliveIndicator: $("aliveIndicator"), logWindow: $("logWindow"), clearLogButton: $("clearLogButton")
+  connectionState: $("connectionState"),
+  connectionText: $("connectionText"),
+  connectButton: $("connectButton"),
+  disconnectButton: $("disconnectButton"),
+  deviceName: $("deviceName"),
+  message: $("message"),
+  modeStatus: $("modeStatus"),
+  modeValue: $("modeValue"),
+  motionValue: $("motionValue"),
+  remotePanel: $("remotePanel"),
+  remoteLock: $("remoteLock"),
+  sensorPanel: $("sensorPanel"),
+  sensorLock: $("sensorLock"),
+  leftPwm: $("leftPwm"),
+  rightPwm: $("rightPwm"),
+  leftPwmValue: $("leftPwmValue"),
+  rightPwmValue: $("rightPwmValue"),
+  sendPwmButton: $("sendPwmButton"),
+  leftCpsValue: $("leftCpsValue"),
+  rightCpsValue: $("rightCpsValue"),
+  straightErrorValue: $("straightErrorValue"),
+  straightTrimValue: $("straightTrimValue"),
+  leftForwardPwmValue: $("leftForwardPwmValue"),
+  leftBackwardPwmValue: $("leftBackwardPwmValue"),
+  rightForwardPwmValue: $("rightForwardPwmValue"),
+  rightBackwardPwmValue: $("rightBackwardPwmValue"),
+  refreshButton: $("refreshButton"),
+  logWindow: $("logWindow"),
+  clearLogButton: $("clearLogButton")
+};
+
+const state = {
+  connected: false,
+  mode: "standby",
+  motion: "stop"
+};
+
+const modeLabels = {
+  standby: "待机",
+  remote: "蓝牙遥控",
+  sensor: "传感器台架"
 };
 
 let bluetoothDevice = null;
 let uartCharacteristic = null;
 let receiveBuffer = "";
-let aliveTimer = null;
+let writeQueue = Promise.resolve();
+let intentionalDisconnect = false;
+
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
 
@@ -31,32 +62,78 @@ function setMessage(text, isError = false) {
   ui.message.classList.toggle("error", isError);
 }
 
-function setConnected(connected) {
-  ui.connectionState.classList.toggle("connected", connected);
-  ui.connectionText.textContent = connected ? "已连接" : "未连接";
-  ui.connectButton.disabled = connected;
-  ui.disconnectButton.disabled = !connected;
-  document.querySelectorAll(".control-button, #speedSlider, #speedPresets button")
-    .forEach((element) => { element.disabled = !connected; });
-}
-
 function addLog(text, kind = "rx") {
   const placeholder = ui.logWindow.querySelector(".muted");
   if (placeholder) placeholder.remove();
 
   const line = document.createElement("p");
   line.className = kind === "tx" ? "tx" : kind === "error" ? "error-line" : "";
-  const prefix = kind === "tx" ? "TX › " : kind === "error" ? "ERR › " : "RX › ";
-  line.textContent = prefix + text;
+  line.textContent = `${kind === "tx" ? "TX" : kind === "error" ? "ERR" : "RX"} › ${text}`;
   ui.logWindow.appendChild(line);
 
-  while (ui.logWindow.children.length > 80) ui.logWindow.firstElementChild.remove();
+  while (ui.logWindow.children.length > 100) ui.logWindow.firstElementChild.remove();
   ui.logWindow.scrollTop = ui.logWindow.scrollHeight;
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  if (mode !== "remote") state.motion = "stop";
+  updateAvailability();
+}
+
+function setMotion(motion) {
+  state.motion = motion;
+  ui.motionValue.textContent = motion.toUpperCase();
+}
+
+function updateAvailability() {
+  const remoteReady = state.connected && state.mode === "remote";
+  const sensorReady = state.connected && state.mode === "sensor";
+
+  document.querySelectorAll(".requires-connection").forEach((element) => {
+    element.disabled = !state.connected;
+  });
+  document.querySelectorAll(".remote-only").forEach((element) => {
+    element.disabled = !remoteReady;
+  });
+  document.querySelectorAll(".sensor-only").forEach((element) => {
+    element.disabled = !sensorReady;
+  });
+
+  document.querySelectorAll(".mode-choice").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.mode === state.mode);
+  });
+
+  ui.modeStatus.textContent = modeLabels[state.mode];
+  ui.modeStatus.className = `mode-status ${state.mode}`;
+  ui.modeValue.textContent = state.mode.toUpperCase();
+  ui.motionValue.textContent = state.motion.toUpperCase();
+
+  ui.remotePanel.classList.toggle("is-locked", !remoteReady);
+  ui.sensorPanel.classList.toggle("is-locked", !sensorReady);
+  ui.remoteLock.textContent = remoteReady ? "遥控已就绪" : "请先进入遥控模式";
+  ui.sensorLock.textContent = sensorReady ? "传感器已运行" : "请先进入传感器模式";
+  ui.remoteLock.classList.toggle("ready", remoteReady);
+  ui.sensorLock.classList.toggle("ready", sensorReady);
+}
+
+function setConnected(connected) {
+  state.connected = connected;
+  ui.connectionState.classList.toggle("connected", connected);
+  ui.connectionText.textContent = connected ? "已连接" : "未连接";
+  ui.connectButton.disabled = connected;
+  ui.disconnectButton.disabled = !connected;
+
+  if (!connected) {
+    state.mode = "standby";
+    state.motion = "stop";
+  }
+  updateAvailability();
 }
 
 async function connectBluetooth() {
   if (!navigator.bluetooth) {
-    setMessage("当前浏览器不支持网页蓝牙。苹果手机请使用 Bluefy 打开本页。", true);
+    setMessage("当前浏览器不支持网页蓝牙。iPhone 请用 Bluefy 打开本页。", true);
     addLog("浏览器不支持 Web Bluetooth", "error");
     return;
   }
@@ -69,7 +146,7 @@ async function connectBluetooth() {
     });
     bluetoothDevice.addEventListener("gattserverdisconnected", handleDisconnected);
 
-    setMessage("正在连接 " + (bluetoothDevice.name || "蓝牙设备") + "…");
+    setMessage(`正在连接 ${bluetoothDevice.name || "蓝牙设备"}…`);
     const server = await bluetoothDevice.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
     uartCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
@@ -78,13 +155,15 @@ async function connectBluetooth() {
       await uartCharacteristic.startNotifications();
       uartCharacteristic.addEventListener("characteristicvaluechanged", handleNotification);
     } else {
-      addLog("FFE1 不支持通知，只能发送命令", "error");
+      addLog("FFE1 不支持通知，页面无法读取小车反馈", "error");
     }
 
+    intentionalDisconnect = false;
     ui.deviceName.textContent = bluetoothDevice.name || "未命名设备";
     setConnected(true);
-    setMessage("连接成功，可以控制小车");
-    addLog("已连接 " + (bluetoothDevice.name || "未命名设备"));
+    addLog(`已连接 ${bluetoothDevice.name || "未命名设备"}`);
+    const queried = await sendCommand("CHECK");
+    setMessage(queried ? "连接成功，已查询小车状态" : "连接成功，但状态查询失败", !queried);
   } catch (error) {
     if (error.name === "NotFoundError") {
       setMessage("已取消选择蓝牙设备");
@@ -92,35 +171,55 @@ async function connectBluetooth() {
     }
     uartCharacteristic = null;
     setConnected(false);
-    setMessage("连接失败：" + error.message, true);
+    setMessage(`连接失败：${error.message}`, true);
     addLog(error.message, "error");
   }
 }
 
-function disconnectBluetooth() {
-  if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) {
-    bluetoothDevice.gatt.disconnect();
-  } else {
+async function disconnectBluetooth() {
+  if (!bluetoothDevice?.gatt?.connected) {
     handleDisconnected();
+    return;
   }
+
+  intentionalDisconnect = true;
+  await sendCommand("STOP");
+  bluetoothDevice.gatt.disconnect();
 }
 
 function handleDisconnected() {
+  const wasIntentional = intentionalDisconnect;
+  intentionalDisconnect = false;
   uartCharacteristic = null;
   receiveBuffer = "";
   setConnected(false);
-  setMessage("蓝牙已断开");
-  addLog("蓝牙已断开", "error");
+  ui.deviceName.textContent = "--";
+
+  if (wasIntentional) {
+    setMessage("已停车并断开蓝牙");
+    addLog("已断开蓝牙");
+  } else {
+    setMessage("蓝牙意外断开，无法确认小车是否已停车", true);
+    addLog("蓝牙意外断开，无法发送停车命令", "error");
+  }
 }
 
-async function sendCommand(command) {
+function sendCommand(command) {
+  const normalized = command.trim().toUpperCase();
+  const operation = () => writeCommand(normalized);
+  const result = writeQueue.then(operation, operation);
+  writeQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+async function writeCommand(command) {
   if (!uartCharacteristic || !bluetoothDevice?.gatt?.connected) {
     setMessage("请先连接蓝牙设备", true);
     return false;
   }
 
   try {
-    const data = encoder.encode(command);
+    const data = encoder.encode(`${command}\n`);
     if (uartCharacteristic.properties.write && uartCharacteristic.writeValueWithResponse) {
       await uartCharacteristic.writeValueWithResponse(data);
     } else if (uartCharacteristic.properties.writeWithoutResponse && uartCharacteristic.writeValueWithoutResponse) {
@@ -131,120 +230,116 @@ async function sendCommand(command) {
       throw new Error("FFE1 不支持写入");
     }
     addLog(command, "tx");
-    setMessage("命令 " + command + " 已发送");
+    setMessage(`命令 ${command} 已发送`);
     return true;
   } catch (error) {
-    setMessage("发送失败：" + error.message, true);
+    setMessage(`发送失败：${error.message}`, true);
     addLog(error.message, "error");
     return false;
   }
 }
 
 function handleNotification(event) {
-  receiveBuffer += decoder.decode(event.target.value, { stream: true });
-  receiveBuffer = receiveBuffer.replace(/\r/g, "");
-
+  receiveBuffer += decoder.decode(event.target.value, { stream: true }).replace(/\r/g, "");
   const lines = receiveBuffer.split("\n");
   receiveBuffer = lines.pop() || "";
   lines.map((line) => line.trim()).filter(Boolean).forEach(processLine);
-
-  // 防止模块长期不发换行符时缓存无限增长。
-  if (receiveBuffer.length > 500) {
-    processLine(receiveBuffer.trim());
-    receiveBuffer = "";
-  }
 }
 
 function processLine(line) {
-  if (!line) return;
   addLog(line);
 
-  const sensorMatch = line.match(/L1\s*=\s*(\d+).*?L2\s*=\s*(\d+).*?R1\s*=\s*(\d+).*?R2\s*=\s*(\d+).*?ERROR\s*=\s*(-?\d+).*?ML\s*=\s*(\d+).*?MR\s*=\s*(\d+)/i);
-  if (sensorMatch) {
-    [ui.l1Value.textContent, ui.l2Value.textContent, ui.r1Value.textContent, ui.r2Value.textContent,
-      ui.errorValue.textContent, ui.mlValue.textContent, ui.mrValue.textContent] = sensorMatch.slice(1);
+  const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
+  if (modeMatch) setMode(modeMatch[1].toLowerCase());
+
+  const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|PWM)\b/i);
+  if (motionMatch) setMotion(motionMatch[1].toLowerCase());
+
+  const cpsMatch = line.match(/ENC CPS L=([+-]?\d+) R=([+-]?\d+)/i);
+  if (cpsMatch) {
+    ui.leftCpsValue.textContent = cpsMatch[1];
+    ui.rightCpsValue.textContent = cpsMatch[2];
   }
 
-  const distanceMatch = line.match(/DIST\s*=\s*(OUT|\d+)\s*(?:CM)?/i);
-  const obstacleMatch = line.match(/(?:OBSTACLE\s*=\s*|OBSTACLE\s+)(CLEAR|SLOW|STOP)/i);
-  const avoidanceMatch = line.match(/(?:AVOID\s*=\s*|OBSTACLE\s+)(ON|OFF)\b/i);
-  const sensorModeMatch = line.match(/SENSOR\s+(ON|OFF)\b/i);
-  if (distanceMatch) updateDistance(distanceMatch[1]);
-  if (obstacleMatch) updateObstacle(obstacleMatch[1].toUpperCase());
-  if (avoidanceMatch) selectMode(ui.obstacleOnButton, ui.obstacleOffButton, avoidanceMatch[1].toUpperCase() === "ON");
-  if (sensorModeMatch) selectMode(ui.sensorOnButton, ui.sensorOffButton, sensorModeMatch[1].toUpperCase() === "ON");
+  const straightMatch = line.match(/STRAIGHT ERR=([+-]?\d+) TRIM=([+-]?\d+) CPS/i);
+  if (straightMatch) {
+    ui.straightErrorValue.textContent = straightMatch[1];
+    ui.straightTrimValue.textContent = straightMatch[2];
+  }
 
-  if (/CAR\s+ALIVE/i.test(line)) markAlive();
+  const pwmMatch = line.match(/^PWM L=(\d+) R=(\d+)$/i);
+  if (pwmMatch) {
+    setMotion("pwm");
+    ui.leftForwardPwmValue.textContent = pwmMatch[1];
+    ui.leftBackwardPwmValue.textContent = "0";
+    ui.rightForwardPwmValue.textContent = pwmMatch[2];
+    ui.rightBackwardPwmValue.textContent = "0";
+  }
+
+  const motorMatch = line.match(/MOTOR (LF|LB|RF|RB)_PWM=(\d+)/i);
+  if (motorMatch) {
+    const fields = {
+      LF: ui.leftForwardPwmValue,
+      LB: ui.leftBackwardPwmValue,
+      RF: ui.rightForwardPwmValue,
+      RB: ui.rightBackwardPwmValue
+    };
+    fields[motorMatch[1].toUpperCase()].textContent = motorMatch[2];
+  }
+
+  if (/^ERR\b/i.test(line)) setMessage(line, true);
 }
 
-function updateDistance(value) {
-  const isOut = String(value).toUpperCase() === "OUT";
-  ui.distanceValue.textContent = isOut ? "OUT" : value;
-  ui.distanceUnit.textContent = isOut ? "" : "cm";
-  const numeric = isOut ? 100 : Math.max(0, Math.min(Number(value), 100));
-  ui.distanceGauge.style.setProperty("--progress", `${numeric * 3.6}deg`);
-}
-
-function updateObstacle(state) {
-  const labels = {
-    CLEAR: { chinese: "安全", symbol: "✓" },
-    SLOW: { chinese: "减速", symbol: "!" },
-    STOP: { chinese: "停车", symbol: "■" }
-  };
-  const selected = labels[state] || { chinese: "未知", symbol: "?" };
-  ui.obstacleState.className = "obstacle-state " + state.toLowerCase();
-  ui.obstacleState.querySelector(".shield").textContent = selected.symbol;
-  ui.obstacleChinese.textContent = selected.chinese;
-  ui.obstacleValue.textContent = state;
-}
-
-function markAlive() {
-  ui.aliveIndicator.textContent = "通信正常";
-  ui.aliveIndicator.classList.add("alive");
-  clearTimeout(aliveTimer);
-  aliveTimer = setTimeout(() => {
-    ui.aliveIndicator.textContent = "等待心跳";
-    ui.aliveIndicator.classList.remove("alive");
-  }, 3500);
-}
-
-function selectSpeed(speed) {
-  const value = Math.max(1, Math.min(9, Number(speed)));
-  ui.speedSlider.value = String(value);
-  ui.speedReadout.textContent = `${value * 10}%`;
-  ui.speedPresets.querySelectorAll("button").forEach((button) => {
-    button.classList.toggle("selected", Number(button.dataset.speed) === value);
-  });
-}
-
-function selectMode(onButton, offButton, enabled) {
-  onButton.classList.toggle("selected", enabled);
-  offButton.classList.toggle("selected", !enabled);
+function updatePwmReadout() {
+  const left = Number(ui.leftPwm.value);
+  const right = Number(ui.rightPwm.value);
+  ui.leftPwmValue.textContent = `${left}%`;
+  ui.rightPwmValue.textContent = `${right}%`;
+  ui.sendPwmButton.textContent = `发送 PWM L=${left} / R=${right}`;
 }
 
 ui.connectButton.addEventListener("click", connectBluetooth);
 ui.disconnectButton.addEventListener("click", disconnectBluetooth);
 
-document.querySelectorAll(".control-button").forEach((button) => {
+document.querySelectorAll(".mode-choice").forEach((button) => {
   button.addEventListener("click", async () => {
-    const sent = await sendCommand(button.dataset.command);
-    if (!sent) return;
-    if (button === ui.sensorOnButton || button === ui.sensorOffButton) {
-      selectMode(ui.sensorOnButton, ui.sensorOffButton, button === ui.sensorOnButton);
-    }
-    if (button === ui.obstacleOnButton || button === ui.obstacleOffButton) {
-      selectMode(ui.obstacleOnButton, ui.obstacleOffButton, button === ui.obstacleOnButton);
-    }
+    if (await sendCommand(button.dataset.command)) setMode(button.dataset.mode);
   });
 });
 
-ui.speedSlider.addEventListener("input", () => selectSpeed(ui.speedSlider.value));
-ui.speedSlider.addEventListener("change", () => sendCommand(ui.speedSlider.value));
-ui.speedPresets.querySelectorAll("button").forEach((button) => {
-  button.addEventListener("click", () => {
-    selectSpeed(button.dataset.speed);
-    sendCommand(button.dataset.speed);
+document.querySelectorAll("button[data-command]:not(.mode-choice)").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (!(await sendCommand(button.dataset.command))) return;
+
+    const motionCommands = {
+      FORWARD: "forward",
+      BACKWARD: "backward",
+      LEFT: "left",
+      RIGHT: "right",
+      STOP: "stop"
+    };
+    if (motionCommands[button.dataset.command]) setMotion(motionCommands[button.dataset.command]);
   });
+});
+
+[ui.leftPwm, ui.rightPwm].forEach((slider) => slider.addEventListener("input", updatePwmReadout));
+
+ui.sendPwmButton.addEventListener("click", async () => {
+  const left = Number(ui.leftPwm.value);
+  const right = Number(ui.rightPwm.value);
+  if (await sendCommand(`PWM ${left} ${right}`)) {
+    setMotion("pwm");
+    ui.leftForwardPwmValue.textContent = String(left);
+    ui.leftBackwardPwmValue.textContent = "0";
+    ui.rightForwardPwmValue.textContent = String(right);
+    ui.rightBackwardPwmValue.textContent = "0";
+  }
+});
+
+ui.refreshButton.addEventListener("click", async () => {
+  await sendCommand("CHECK");
+  if (state.mode !== "standby") await sendCommand("ENC");
+  await sendCommand("MOTOR");
 });
 
 ui.clearLogButton.addEventListener("click", () => {
@@ -252,6 +347,4 @@ ui.clearLogButton.addEventListener("click", () => {
 });
 
 setConnected(false);
-selectSpeed(3);
-selectMode(ui.sensorOnButton, ui.sensorOffButton, false);
-selectMode(ui.obstacleOnButton, ui.obstacleOffButton, true);
+updatePwmReadout();
