@@ -26,7 +26,10 @@ const ui = {
   leftDistanceValue: $("leftDistanceValue"), rightDistanceValue: $("rightDistanceValue"),
   lineLeftTransValue: $("lineLeftTransValue"), lineLeftLongValue: $("lineLeftLongValue"),
   lineRightTransValue: $("lineRightTransValue"), lineRightLongValue: $("lineRightLongValue"),
-  lineErrorValue: $("lineErrorValue"), trackMark: $("trackMark"),
+  lineErrorValue: $("lineErrorValue"), trackStateValue: $("trackStateValue"),
+  trackRunValue: $("trackRunValue"), avoidanceValue: $("avoidanceValue"),
+  avoidanceStatus: $("avoidanceStatus"), trackStartButton: $("trackStartButton"),
+  trackStopButton: $("trackStopButton"),
   servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
   stageParamsButton: $("stageParamsButton"), applyParamsButton: $("applyParamsButton"),
@@ -36,7 +39,10 @@ const ui = {
   exportLogButton: $("exportLogButton"), clearLogButton: $("clearLogButton"), logWindow: $("logWindow")
 };
 
-const state = { connected: false, mode: "standby", motion: "stop", gear: "HIGH" };
+const state = {
+  connected: false, mode: "standby", motion: "stop", gear: "HIGH",
+  trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false
+};
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
   pwmLeft: null, pwmRight: null, error: null, trim: null, voltageMv: null,
@@ -44,7 +50,7 @@ const telemetry = {
   leftDistance: null, rightDistance: null,
   lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
   lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
-  lineErrorX100: null
+  lineErrorX100: null, lineTrim: null
 };
 
 const knownParams = {};
@@ -74,6 +80,7 @@ let joystickLastSentAt = 0;
 let joystickLastCommand = "";
 let calibrationDirection = null;
 let calibrationSuggestion = null;
+let linePollTimer = null;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -99,8 +106,10 @@ function snapshot() {
     line_right_trans: telemetry.lineRightTrans, line_right_long: telemetry.lineRightLong,
     line_left_trans_pct: telemetry.lineLeftTransPct, line_left_long_pct: telemetry.lineLeftLongPct,
     line_right_trans_pct: telemetry.lineRightTransPct, line_right_long_pct: telemetry.lineRightLongPct,
-    line_error_x100: telemetry.lineErrorX100, track_mark: ui.trackMark.value,
-    speed_gear: state.gear
+    line_error_x100: telemetry.lineErrorX100, line_trim_cps: telemetry.lineTrim,
+    track_state: state.trackState, track_running: state.trackRunning,
+    avoidance: state.avoidance ? "ON" : "OFF",
+    remote_speed_gear: state.gear, track_speed_gear: state.trackGear
   };
 }
 
@@ -231,14 +240,62 @@ function setGear(gear) {
   });
 }
 
+function setTrackGear(gear) {
+  state.trackGear = gear;
+  document.querySelectorAll(".track-gear-choice").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.trackGear === gear);
+  });
+}
+
+function setTrackState(trackState) {
+  const labels = { LOST: "丢线", STRAIGHT: "直线", LEFT: "左转", RIGHT: "右转", CROSS: "十字" };
+  state.trackState = trackState;
+  ui.trackStateValue.textContent = labels[trackState] || trackState;
+  ui.trackStateValue.dataset.state = trackState;
+}
+
+function setTrackRunning(running) {
+  state.trackRunning = running;
+  ui.trackRunValue.textContent = running ? "循迹中" : "已停止";
+  updateAvailability();
+}
+
+function setAvoidance(enabled) {
+  state.avoidance = enabled;
+  ui.avoidanceValue.textContent = enabled ? "开启" : "关闭";
+  ui.avoidanceStatus.textContent = enabled ? "避障开启" : "避障关闭";
+  document.querySelectorAll(".avoid-choice").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.avoid === (enabled ? "ON" : "OFF"));
+  });
+}
+
+function stopLinePolling() {
+  if (linePollTimer) clearInterval(linePollTimer);
+  linePollTimer = null;
+}
+
+function startLinePolling() {
+  stopLinePolling();
+  if (!state.connected || state.mode !== "sensor") return;
+  linePollTimer = setInterval(() => {
+    if (state.connected && state.mode === "sensor") sendCommand("LINE");
+  }, 350);
+}
+
 function setMode(mode) {
+  if (state.mode === "sensor" && mode !== "sensor") stopLinePolling();
   state.mode = mode;
   joystickLastCommand = "";
   if (mode !== "remote") {
     setMotion("stop");
     centerJoystick(false);
   }
+  if (mode !== "sensor") {
+    setTrackRunning(false);
+    setAvoidance(false);
+  }
   updateAvailability();
+  if (mode === "sensor") startLinePolling();
 }
 
 function updateAvailability() {
@@ -248,14 +305,18 @@ function updateAvailability() {
   document.querySelectorAll(".requires-connection").forEach((element) => { element.disabled = !state.connected; });
   document.querySelectorAll(".remote-only").forEach((element) => { element.disabled = !remoteReady; });
   document.querySelectorAll(".sensor-only").forEach((element) => { element.disabled = !sensorReady; });
-  document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {
+  document.querySelectorAll(".mode-entry-button[data-mode]").forEach((button) => {
     button.classList.toggle("selected", button.dataset.mode === state.mode);
+    button.textContent = button.dataset.mode === state.mode ? "当前模式" :
+                         button.dataset.mode === "remote" ? "进入遥控" : "进入传感";
   });
 
   ui.modeValue.textContent = state.mode.toUpperCase();
   ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
   ui.remoteLock.textContent = remoteReady ? "已就绪" : "需进入遥控模式";
-  ui.sensorLock.textContent = sensorReady ? "已运行" : "需进入传感模式";
+  ui.sensorLock.textContent = sensorReady ? "传感已就绪" : "需进入传感模式";
+  ui.trackStartButton.disabled = !sensorReady || state.trackRunning;
+  ui.trackStopButton.disabled = !sensorReady || !state.trackRunning;
 }
 
 function selectedConnectionType() {
@@ -289,8 +350,11 @@ function setConnected(connected) {
   ui.connectButton.disabled = connected;
   updateConnectionControls();
   if (!connected) {
+    stopLinePolling();
     state.mode = "standby";
     state.motion = "stop";
+    setTrackRunning(false);
+    setAvoidance(false);
     joystickLastCommand = "";
     calibrationDirection = null;
     calibrationSuggestion = null;
@@ -569,14 +633,18 @@ function processLine(line) {
   if (modeMatch) setMode(modeMatch[1].toLowerCase());
   if (/^OK STOPPED MODE\b/i.test(line)) {
     setMotion("stop");
+    if (/SENSOR$/i.test(line)) setTrackRunning(false);
     centerJoystick(false);
   }
 
   const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|JOYSTICK|TURN90_LEFT|TURN90_RIGHT)\b/i);
   if (motionMatch) setMotion(motionMatch[1].toLowerCase());
 
-  const gearMatch = line.match(/(?:GEAR=|OK GEAR )(LOW|MEDIUM|HIGH)\b/i);
+  const gearMatch = line.match(/^(?:GEAR=|OK GEAR )(LOW|MEDIUM|HIGH)$/i);
   if (gearMatch) setGear(gearMatch[1].toUpperCase());
+
+  const trackGearMatch = line.match(/^(?:TRACK_GEAR=|OK TRACK GEAR )(LOW|MEDIUM|HIGH)$/i);
+  if (trackGearMatch) setTrackGear(trackGearMatch[1].toUpperCase());
 
   const trace = line.match(/^TRACE M=(\w+) L=([+-]?\d+) R=([+-]?\d+) TL=([+-]?\d+) TR=([+-]?\d+) PL=([+-]?\d+) PR=([+-]?\d+) E=([+-]?\d+) C=([+-]?\d+) V=(\d+)$/i);
   if (trace) {
@@ -617,16 +685,19 @@ function processLine(line) {
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
   }
 
-  const lineSensors = line.match(/^LINE LT=(\d+) LL=(\d+) RT=(\d+) RL=(\d+) NLT=(\d+) NLL=(\d+) NRT=(\d+) NRL=(\d+) ERR_X100=([+-]?\d+)$/i);
+  const lineSensors = line.match(/^LINE RUN=(0|1) STATE=(LOST|STRAIGHT|LEFT|RIGHT|CROSS) AVOID=(ON|OFF) LT=(\d+) LL=(\d+) RT=(\d+) RL=(\d+) NLT=(\d+) NLL=(\d+) NRT=(\d+) NRL=(\d+) ERR_X100=([+-]?\d+) TRIM=([+-]?\d+)$/i);
   if (lineSensors) {
+    setTrackRunning(lineSensors[1] === "1");
+    setTrackState(lineSensors[2].toUpperCase());
+    setAvoidance(lineSensors[3].toUpperCase() === "ON");
     [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong,
       telemetry.lineLeftTransPct, telemetry.lineLeftLongPct, telemetry.lineRightTransPct,
-      telemetry.lineRightLongPct, telemetry.lineErrorX100] = lineSensors.slice(1).map(Number);
+      telemetry.lineRightLongPct, telemetry.lineErrorX100, telemetry.lineTrim] = lineSensors.slice(4).map(Number);
     ui.lineLeftTransValue.textContent = showLineSensor(telemetry.lineLeftTrans, telemetry.lineLeftTransPct);
     ui.lineLeftLongValue.textContent = showLineSensor(telemetry.lineLeftLong, telemetry.lineLeftLongPct);
     ui.lineRightTransValue.textContent = showLineSensor(telemetry.lineRightTrans, telemetry.lineRightTransPct);
     ui.lineRightLongValue.textContent = showLineSensor(telemetry.lineRightLong, telemetry.lineRightLongPct);
-    ui.lineErrorValue.textContent = `方向误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)}`;
+    ui.lineErrorValue.textContent = `误差 ${(telemetry.lineErrorX100 / 100).toFixed(2)} · 修正 ${telemetry.lineTrim} CPS`;
   }
 
   const cps = line.match(/ENC CPS L=([+-]?\d+) R=([+-]?\d+)/i);
@@ -685,7 +756,14 @@ function processLine(line) {
     setMotion("stop");
     centerJoystick(false);
   }
-  if (/^ERR\b/i.test(line)) setMessage(line, true);
+  if (/^OK TRACK STARTED$/i.test(line)) setTrackRunning(true);
+  if (/^OK TRACK STOPPED$/i.test(line)) setTrackRunning(false);
+  if (/^ERR TRACK NO LINE$/i.test(line)) {
+    setTrackRunning(false);
+    setTrackState("LOST");
+    setMessage("未检测到赛道，循迹没有启动", true);
+  }
+  else if (/^ERR\b/i.test(line)) setMessage(line, true);
 
   addLog(line, /^ERR\b/i.test(line) ? "error" : "rx");
 }
@@ -807,7 +885,7 @@ function csvCell(value) {
 }
 
 function exportCsv() {
-  const columns = ["time", "elapsed_ms", "kind", "mode", "motion", "speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv", "distance_cm", "route", "servo_deg", "servo_control", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "line_error_x100", "track_mark", "note", "text"];
+  const columns = ["time", "elapsed_ms", "kind", "mode", "motion", "remote_speed_gear", "track_speed_gear", "track_running", "track_state", "avoidance", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv", "distance_cm", "route", "servo_deg", "servo_control", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "line_error_x100", "line_trim_cps", "note", "text"];
   const rows = [columns.join(",")];
   for (const record of logRecords) {
     const row = { ...record, note: ui.runNote.value };
@@ -834,7 +912,7 @@ ui.connectionType.addEventListener("change", () => {
 });
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
 
-document.querySelectorAll(".mode-choice[data-mode]").forEach((button) => {
+document.querySelectorAll(".mode-entry-button[data-mode]").forEach((button) => {
   button.addEventListener("click", async () => {
     if (!(await sendCommand(button.dataset.command))) return;
     setMode(button.dataset.mode);
@@ -858,6 +936,18 @@ document.querySelectorAll("button[data-command]:not([data-mode])").forEach((butt
 document.querySelectorAll(".gear-choice").forEach((button) => {
   button.addEventListener("click", async () => {
     if (await sendCommand(`GEAR ${button.dataset.gear}`)) setGear(button.dataset.gear);
+  });
+});
+
+document.querySelectorAll(".track-gear-choice").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (await sendCommand(`TRACK GEAR ${button.dataset.trackGear}`)) setTrackGear(button.dataset.trackGear);
+  });
+});
+
+document.querySelectorAll(".avoid-choice").forEach((button) => {
+  button.addEventListener("click", async () => {
+    if (await sendCommand(`AVOID ${button.dataset.avoid}`)) setAvoidance(button.dataset.avoid === "ON");
   });
 });
 
@@ -940,6 +1030,9 @@ loadGrantedDevices();
 selectTab("remote");
 drawJoystick(0, 0);
 setGear("HIGH");
+setTrackGear("LOW");
+setTrackState("LOST");
+setAvoidance(false);
 updateTurn90Status();
 updateDriveSpeedSummary();
 updateServoReadout();

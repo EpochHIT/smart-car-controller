@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车手机蓝牙调试控制台">
   <title>智能车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260829-line-gears">
+  <link rel="stylesheet" href="styles.css?v=20260829-separated-modes">
 </head>
 <body>
   <main class="app-shell">
@@ -27,12 +27,7 @@
         <button class="button ghost" id="disconnectButton" type="button" disabled>上次设备</button>
         <strong class="device-name" id="deviceName">--</strong>
       </div>
-      <div class="mode-switch" role="group" aria-label="运行模式">
-        <button class="mode-choice requires-connection selected" data-mode="standby" data-command="MODE STANDBY" type="button" disabled>待机</button>
-        <button class="mode-choice requires-connection" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>遥控</button>
-        <button class="mode-choice requires-connection" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>传感</button>
-        <button class="mode-choice stop requires-connection" data-command="STOP" type="button" disabled>■ 停车</button>
-      </div>
+      <button class="button stop-button full requires-connection" data-command="STOP" type="button" disabled>■ 全局停车</button>
       <p class="message" id="message" aria-live="polite">先在手机系统蓝牙中配对 JDY-31，再点连接</p>
     </section>
 
@@ -49,6 +44,11 @@
         <span>动作 <strong id="motionValue">STOP</strong></span>
         <span>电压 <strong id="voltageValue">--</strong></span>
       </div>
+
+      <section class="card mode-entry-card">
+        <div><strong>手动遥控</strong><small>只启用摇杆、方向键和遥控速度参数</small></div>
+        <button class="button primary requires-connection mode-entry-button" data-mode="remote" data-command="MODE REMOTE" type="button" disabled>进入遥控</button>
+      </section>
 
       <section class="card joystick-card">
         <div class="section-title"><h2>XY 摇杆</h2><span id="remoteLock">需进入遥控模式</span></div>
@@ -114,8 +114,55 @@
     </section>
 
     <section class="tab-panel" id="sensorTab" data-panel="sensor" hidden>
+      <section class="card mode-entry-card">
+        <div><strong>传感循迹</strong><small>只启用电感识别、循迹控制和可选避障</small></div>
+        <button class="button primary requires-connection mode-entry-button" data-mode="sensor" data-command="MODE SENSOR" type="button" disabled>进入传感</button>
+      </section>
+
+      <section class="card track-control-card">
+        <div class="section-title"><h2>自动循迹</h2><span id="sensorLock">需进入传感模式</span></div>
+        <div class="track-state-hero">
+          <div><small>识别结果</small><strong id="trackStateValue">待读取</strong></div>
+          <div><small>运行状态</small><strong id="trackRunValue">已停止</strong></div>
+          <div><small>避障</small><strong id="avoidanceValue">关闭</strong></div>
+        </div>
+        <div class="button-grid two-buttons track-run-buttons">
+          <button class="button primary sensor-only" id="trackStartButton" data-command="TRACK START" type="button" disabled>▶ 启动循迹</button>
+          <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束循迹</button>
+        </div>
+        <div class="gear-row">
+          <span>循迹速度档</span>
+          <div class="gear-switch" role="group" aria-label="循迹速度档">
+            <button class="track-gear-choice sensor-only selected" data-track-gear="LOW" type="button" disabled>低</button>
+            <button class="track-gear-choice sensor-only" data-track-gear="MEDIUM" type="button" disabled>中</button>
+            <button class="track-gear-choice sensor-only" data-track-gear="HIGH" type="button" disabled>高</button>
+          </div>
+        </div>
+        <div class="gear-row">
+          <span>超声波避障</span>
+          <div class="gear-switch two" role="group" aria-label="超声波避障开关">
+            <button class="avoid-choice sensor-only selected" data-avoid="OFF" type="button" disabled>关闭</button>
+            <button class="avoid-choice sensor-only" data-avoid="ON" type="button" disabled>开启</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card line-card">
+        <div class="section-title"><h2>赛道反馈</h2><span id="lineErrorValue">方向误差 --</span></div>
+        <div class="data-grid four line-sensor-grid">
+          <div><small>左横 · PA4</small><strong id="lineLeftTransValue">-- · --%</strong></div>
+          <div><small>左竖 · PA5</small><strong id="lineLeftLongValue">-- · --%</strong></div>
+          <div><small>右横 · PB1</small><strong id="lineRightTransValue">-- · --%</strong></div>
+          <div><small>右竖 · PB0</small><strong id="lineRightLongValue">-- · --%</strong></div>
+        </div>
+        <div class="line-controls">
+          <span>代码自动识别直线、左转、右转、十字和丢线</span>
+          <button class="button primary sensor-only" data-command="LINE" type="button" disabled>立即读取</button>
+        </div>
+      </section>
+
       <section class="card sensor-card">
-        <div class="section-title"><h2>HC-SR04 + SG90</h2><span id="sensorLock">需进入传感模式</span></div>
+        <div class="section-title"><h2>超声波 + 舵机</h2><span id="avoidanceStatus">避障关闭</span></div>
         <div class="sensor-hero">
           <div class="distance"><strong id="distanceValue">--</strong><span>cm</span></div>
           <div class="data-grid two">
@@ -126,40 +173,19 @@
           </div>
         </div>
         <div class="side-distance"><span>左侧 <strong id="leftDistanceValue">--</strong> cm</span><span>右侧 <strong id="rightDistanceValue">--</strong> cm</span></div>
-        <label class="range-row" for="servoAngle"><span>手动角度</span><output id="servoAngleValue">90°</output></label>
-        <input class="range sensor-only" id="servoAngle" type="range" min="0" max="180" value="90" disabled>
-        <div class="button-grid">
-          <button class="button primary sensor-only" id="sendServoButton" type="button" disabled>转到 90°</button>
-          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_L" type="button" disabled>左看</button>
-          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_C" type="button" disabled>回中</button>
-          <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_R" type="button" disabled>右看</button>
-          <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>自动</button>
-          <button class="button ghost sensor-only" data-command="SENSOR" type="button" disabled>刷新</button>
-        </div>
-      </section>
-
-      <section class="card line-card">
-        <div class="section-title"><h2>四路电感</h2><span id="lineErrorValue">方向误差 --</span></div>
-        <div class="data-grid four line-sensor-grid">
-          <div><small>左横 · PA4</small><strong id="lineLeftTransValue">-- · --%</strong></div>
-          <div><small>左竖 · PA5</small><strong id="lineLeftLongValue">-- · --%</strong></div>
-          <div><small>右横 · PB1</small><strong id="lineRightTransValue">-- · --%</strong></div>
-          <div><small>右竖 · PB0</small><strong id="lineRightLongValue">-- · --%</strong></div>
-        </div>
-        <div class="line-controls">
-          <label for="trackMark">人工标记
-            <select id="trackMark">
-              <option value="UNMARKED">未标记</option>
-              <option value="STRAIGHT">直线</option>
-              <option value="LEFT">左转</option>
-              <option value="RIGHT">右转</option>
-              <option value="CROSS">十字</option>
-              <option value="LOST">丢线</option>
-            </select>
-          </label>
-          <button class="button primary sensor-only" data-command="LINE" type="button" disabled>读取电感</button>
-        </div>
-        <p class="message">连续采样时标记赛道形态，导出的四路数据可用于确定自动识别阈值。</p>
+        <details class="inline-details">
+          <summary>手动测试舵机</summary>
+          <label class="range-row" for="servoAngle"><span>手动角度</span><output id="servoAngleValue">90°</output></label>
+          <input class="range sensor-only" id="servoAngle" type="range" min="0" max="180" value="90" disabled>
+          <div class="button-grid">
+            <button class="button primary sensor-only" id="sendServoButton" type="button" disabled>转到 90°</button>
+            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_L" type="button" disabled>左看</button>
+            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_C" type="button" disabled>回中</button>
+            <button class="button ghost sensor-only servo-preset" data-servo-param="SERVO_R" type="button" disabled>右看</button>
+            <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>自动</button>
+            <button class="button ghost sensor-only" data-command="SENSOR" type="button" disabled>刷新</button>
+          </div>
+        </details>
       </section>
     </section>
 
@@ -174,7 +200,7 @@
         </div>
 
         <details class="parameter-group" open>
-          <summary>速度与转弯</summary>
+          <summary>遥控：速度与转弯</summary>
           <div class="speed-stepper"><span id="driveSpeedSummary">低速 3900 · 前 4300 · 倒 4300 CPS</span><button class="button ghost requires-connection" id="speedUp5Button" type="button" disabled>整体 +5%</button><button class="button ghost requires-connection" id="speedUp10Button" type="button" disabled>整体 +10%</button></div>
           <div class="parameter-grid">
             <label>前进左 CPS<input class="param-input requires-connection" data-param="TARGET_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
@@ -185,16 +211,23 @@
             <label>左 90° count<input class="param-input requires-connection" data-param="TURN90_L_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
             <label>右 90° count<input class="param-input requires-connection" data-param="TURN90_R_COUNT" type="number" min="0" max="20000" value="0" disabled></label>
             <label>摇杆最低 CPS<input class="param-input requires-connection" data-param="JOY_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+          </div>
+          <p class="group-hint">只影响手动遥控，不作为自动循迹速度。</p>
+        </details>
+
+        <details class="parameter-group">
+          <summary>电机底层闭环（两种模式共用）</summary>
+          <div class="parameter-grid">
             <label>前馈 PWM<input class="param-input requires-connection" data-param="SPEED_FF_PCT" type="number" min="0" max="100" value="60" disabled></label>
             <label>最大 PWM<input class="param-input requires-connection" data-param="SPEED_MAX_PCT" type="number" min="0" max="100" value="80" disabled></label>
             <label>Kp ×10000<input class="param-input requires-connection" data-param="SPEED_KP_X10000" type="number" min="0" max="1000" value="50" disabled></label>
             <label>Ki ×10000<input class="param-input requires-connection" data-param="SPEED_KI_X10000" type="number" min="0" max="1000" value="40" disabled></label>
           </div>
-          <p class="group-hint">越过中心死区后，从“摇杆最低 CPS”连续映射到方向上限；最大 PWM 只是闭环输出上限。</p>
+          <p class="group-hint">只负责把目标 CPS 变成左右电机 PWM；遥控和循迹各自拥有独立目标速度。</p>
         </details>
 
         <details class="parameter-group">
-          <summary>直线修正</summary>
+          <summary>遥控：直线修正</summary>
           <div class="parameter-grid">
             <label>直线 Kp ×1000<input class="param-input requires-connection" data-param="STRAIGHT_KP_X1000" type="number" min="0" max="1000" value="100" disabled></label>
             <label>死区 count<input class="param-input requires-connection" data-param="STRAIGHT_DB_COUNT" type="number" min="0" max="1000" value="10" disabled></label>
@@ -202,8 +235,23 @@
           </div>
         </details>
 
+        <details class="parameter-group" open>
+          <summary>循迹：识别与速度</summary>
+          <div class="parameter-grid">
+            <label>循迹最低 CPS<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
+            <label>循迹左轮上限<input class="param-input requires-connection" data-param="TRACK_L_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>循迹右轮上限<input class="param-input requires-connection" data-param="TRACK_R_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
+            <label>转向 Kp ×100<input class="param-input requires-connection" data-param="TRACK_KP_X100" type="number" min="0" max="5000" value="1000" disabled></label>
+            <label>最大差速修正 CPS<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
+            <label>检测阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
+            <label>分支阈值 %<input class="param-input requires-connection" data-param="TRACK_BRANCH_PCT" type="number" min="0" max="100" value="60" disabled></label>
+            <label>转向反向<select class="param-input requires-connection" data-param="TRACK_REVERSE" disabled><option value="0">否</option><option value="1">是</option></select></label>
+          </div>
+          <p class="group-hint">检测阈值用于丢线判断；左右横向传感器超过分支阈值后识别左转、右转或十字。</p>
+        </details>
+
         <details class="parameter-group">
-          <summary>超声波 / 舵机</summary>
+          <summary>传感：超声波 / 舵机 / 避障</summary>
           <div class="parameter-grid">
             <label>障碍阈值 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="0" max="400" value="30" disabled></label>
             <label>测距周期 ms<input class="param-input requires-connection" data-param="US_PERIOD_MS" type="number" min="60" max="1000" value="70" disabled></label>
@@ -232,6 +280,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260829-line-gears"></script>
+  <script src="app.js?v=20260829-separated-modes"></script>
 </body>
 </html>
