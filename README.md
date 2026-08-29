@@ -2,7 +2,11 @@
 
 在线地址：<https://epochhit.github.io/smart-car-controller/>
 
-面向 STM32F103 智能车的手机巡线调试网页。目前使用 JDY-31-SPP；在 Android 系统蓝牙中完成配对后，使用 Chrome 137 或更高版本打开网页并连接。
+Android APP：<https://github.com/EpochHIT/smart-car-controller/releases/latest/download/smart-car-controller.apk>
+
+面向 STM32F103 智能车的手机巡线调试工具。目前使用 JDY-31-SPP / HC-05，通信为 57600、8N1。推荐直接安装 Android APP；网页版可作为备用。
+
+APP 会列出系统中已经配对的经典蓝牙设备，支持按名称或 MAC 地址搜索，并记住上次连接。首次使用前仍需在 Android 系统蓝牙中完成配对。
 
 连接成功后网页会请求进入“巡线待机”，只有收到小车返回的模式确认才会开放启动按钮：持续读取传感器，但不会启动电机。点击“遥控”或“巡线”页签会直接切换小车模式，不需要再点第二个“进入模式”按钮。
 
