@@ -107,17 +107,17 @@
         <summary>四路波形与数据导出</summary>
         <p class="group-hint waveform-hint">连接后自动保存当前这一组，切换场景会写进每条数据；图中只显示最近 120 条，本组最多保留 2000 条。</p>
         <div class="capture-label-row">
-          <label>当前测量<select id="sensorScenario"><option value="straight" selected>直线</option><option value="left_offset">左偏（需要向右修正）</option><option value="right_offset">右偏（需要向左修正）</option><option value="blank">离开线路</option><option value="cross">十字（暂只记录）</option><option value="custom">自定义</option></select></label>
+          <label>当前测量<select id="sensorScenario"><option value="straight" selected>直线</option><option value="left_offset">需向右修正（车身左偏）</option><option value="right_offset">需向左修正（车身右偏）</option><option value="blank">离开线路</option><option value="cross">十字（暂只记录）</option><option value="pin_test">固定姿态换引脚（硬件测试）</option><option value="custom">自定义</option></select></label>
           <label>补充说明<input id="sensorSessionNote" type="text" placeholder="例如：低速、车头略歪"></label>
         </div>
         <canvas id="sensorChart" width="640" height="260" aria-label="四路电感 ADC 波形"></canvas>
         <div class="chart-legend"><span class="cyan">左横</span><span class="violet">左竖</span><span class="orange">右竖</span><span class="green">右横</span></div>
         <div class="capture-actions">
-          <button class="button ghost" id="newSensorSessionButton" type="button">开始新一组</button>
+          <button class="button ghost" id="newSensorSessionButton" type="button">开始下一组</button>
           <button class="button ghost" id="copySensorSessionButton" type="button" disabled>复制本组</button>
           <button class="button primary" id="exportSensorSessionButton" type="button" disabled>导出 CSV</button>
         </div>
-        <p class="capture-status" id="sensorCaptureStatus">连接后自动记录 · 0 条</p>
+        <p class="capture-status" id="sensorCaptureStatus">第 1 组 · 连接后自动记录 0 条</p>
       </details>
 
       <details class="card fold-card obstacle-fold">
@@ -226,6 +226,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-build-time"></script>
+  <script src="app.js?v=20260830-sensor-files"></script>
 </body>
 </html>

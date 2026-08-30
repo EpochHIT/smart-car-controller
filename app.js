@@ -101,6 +101,7 @@ let resumePollingAfterParams = false;
 let paramsRequestPending = false;
 let lastLineSequence = null;
 let sensorSessionStartedAt = Date.now();
+let sensorSessionNumber = 1;
 let nativeDeviceLabel = "";
 let nativeHasLastDevice = false;
 let receivedByteCount = 0;
@@ -218,6 +219,26 @@ function sensorScenarioLabel() {
   return ui.sensorScenario.selectedOptions[0]?.textContent || ui.sensorScenario.value;
 }
 
+function sensorScenarioFileLabel(scene) {
+  return ({
+    straight: "直线",
+    left_offset: "需右修正",
+    right_offset: "需左修正",
+    blank: "离开线路",
+    cross: "十字",
+    pin_test: "固定姿态换引脚",
+    custom: "自定义"
+  })[scene] || "未命名";
+}
+
+function localTimestamp(date = new Date(), fileName = false) {
+  const pad = (value, length = 2) => String(value).padStart(length, "0");
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  if (fileName) return `${day}_${time.replace(/:/g, "-")}`;
+  return `${day} ${time}.${pad(date.getMilliseconds(), 3)}`;
+}
+
 function sensorRange(key) {
   if (sensorHistory.length === 0) return null;
   let minimum = 4095;
@@ -321,7 +342,7 @@ function drawSensorChart() {
 function updateSensorCaptureStatus() {
   const count = sensorHistory.length;
   const elapsed = count ? Math.round((sensorHistory.at(-1).time_ms - sensorSessionStartedAt) / 1000) : 0;
-  ui.sensorCaptureStatus.textContent = `自动记录 · ${count} 条 · ${elapsed}s · 当前：${sensorScenarioLabel()}`;
+  ui.sensorCaptureStatus.textContent = `第 ${sensorSessionNumber} 组 · 自动记录 ${count} 条 · ${elapsed}s · 当前：${sensorScenarioLabel()}`;
   ui.copySensorSessionButton.disabled = count === 0;
   ui.exportSensorSessionButton.disabled = count === 0;
   updateSensorMeters();
@@ -333,7 +354,8 @@ function captureSensorHistory() {
   if (!raw.every(Number.isFinite)) return;
   const now = Date.now();
   sensorHistory.push({
-    time: new Date(now).toISOString(), time_ms: now,
+    local_time: localTimestamp(new Date(now)), time: new Date(now).toISOString(), time_ms: now,
+    session_number: sensorSessionNumber,
     elapsed_ms: now - sensorSessionStartedAt,
     scene: ui.sensorScenario.value, scene_label: sensorScenarioLabel(), note: ui.sensorSessionNote.value.trim(),
     sequence: telemetry.lineSequence,
@@ -349,13 +371,14 @@ function captureSensorHistory() {
 function startNewSensorSession() {
   sensorHistory.length = 0;
   sensorSessionStartedAt = Date.now();
+  sensorSessionNumber += 1;
   updateSensorCaptureStatus();
-  setMessage(`已开始新一组：${sensorScenarioLabel()}`);
+  setMessage(`已开始第 ${sensorSessionNumber} 组：${sensorScenarioLabel()}`);
 }
 
 function sensorSessionTable(separator) {
   const columns = [
-    ["时间", "time"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"], ["序号", "sequence"],
+    ["本地时间", "local_time"], ["UTC时间", "time"], ["组号", "session_number"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"], ["序号", "sequence"],
     ["左横_PA4", "left_horizontal"], ["左竖_PA5", "left_vertical"], ["右竖_PB0", "right_vertical"], ["右横_PB1", "right_horizontal"],
     ["左横相对值", "left_horizontal_pct"], ["左竖相对值", "left_vertical_pct"], ["右竖相对值", "right_vertical_pct"], ["右横相对值", "right_horizontal_pct"],
     ["误差x100", "line_error_x100"], ["直线状态", "track_state"], ["是否运行", "track_running"]
@@ -378,7 +401,10 @@ async function copySensorSession() {
 
 function exportSensorSession() {
   if (sensorHistory.length === 0) return;
-  const fileName = `sensor-${ui.sensorScenario.value}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  const scenes = new Set(sensorHistory.map((record) => record.scene));
+  const scene = scenes.size === 1 ? sensorScenarioFileLabel([...scenes][0]) : "多场景";
+  const group = String(sensorSessionNumber).padStart(2, "0");
+  const fileName = `传感器-${scene}-第${group}组-${localTimestamp(new Date(sensorSessionStartedAt), true)}.csv`;
   downloadText(fileName, `\ufeff${sensorSessionTable(",")}`);
 }
 
@@ -1441,7 +1467,7 @@ function exportCsv() {
   for (const record of records) {
     rows.push(columns.map((column) => csvCell(record[column])).join(","));
   }
-  const fileName = `smart-car-${mode === "sensor" ? "track" : "remote"}-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+  const fileName = `小车-${mode === "sensor" ? "巡线" : "遥控"}-${localTimestamp(new Date(), true)}.csv`;
   downloadText(fileName, `\ufeff${rows.join("\n")}`);
 }
 
