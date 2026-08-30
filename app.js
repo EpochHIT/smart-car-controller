@@ -104,6 +104,7 @@ let sensorSessionStartedAt = Date.now();
 let nativeDeviceLabel = "";
 let nativeHasLastDevice = false;
 let autoBaudEnabled = true;
+let receivedByteCount = 0;
 
 const decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -427,19 +428,25 @@ async function activateMode(mode, force = false) {
   const maxAttempts = autoBaudEnabled ? 12 : 3;
   const ackTimeout = autoBaudEnabled ? 400 : 1200;
   const retryDelay = autoBaudEnabled ? 50 : 180;
+  const bytesBeforeHandshake = receivedByteCount;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    addLog(`${command} TRY ${attempt}/${maxAttempts}`, "tx");
     const acknowledgement = beginModeAck(mode, ackTimeout);
     if (!(await sendCommand(command, true))) {
       resolveModeAck(mode, false);
       return false;
     }
     if (await acknowledgement) {
+      addLog(`MODE ACK ${mode.toUpperCase()} RX_BYTES=${receivedByteCount - bytesBeforeHandshake}`);
       if (mode === "sensor" && !force) await sendCommand("SENSOR", true);
       return true;
     }
     if (attempt < maxAttempts) await delay(retryDelay);
   }
-  setMessage(`小车连续${autoBaudEnabled ? "自动探测 12" : "确认 3"}次仍没有确认${mode === "sensor" ? "巡线" : "遥控"}模式，请切换连接波特率后重连`, true);
+  const received = receivedByteCount - bytesBeforeHandshake;
+  const diagnostic = received === 0 ? "握手期间 RX=0 字节" : `收到 ${received} 字节，但没有合法模式确认`;
+  addLog(`MODE ACK FAILED ${diagnostic}`, "error");
+  setMessage(`小车没有确认${mode === "sensor" ? "巡线" : "遥控"}模式：${diagnostic}`, true);
   return false;
 }
 
@@ -672,6 +679,7 @@ function setConnected(connected) {
 }
 
 function receiveBytes(value) {
+  receivedByteCount += value.byteLength;
   receiveBuffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
   const lines = receiveBuffer.split("\n");
   receiveBuffer = lines.pop() || "";
@@ -698,7 +706,6 @@ window.onAndroidBluetoothState = async (info) => {
     selectTab("sensor");
     await delay(350);
     if (await activateMode("sensor")) setMessage("连接成功：巡线待机，电机未启动");
-    else setMessage("蓝牙已连接，但小车没有回应；请检查模块 UART，或切换网页波特率", true);
     return;
   }
 
@@ -758,8 +765,6 @@ async function connectSerialPort(port) {
   await delay(350);
   if (await activateMode("sensor")) {
     setMessage("连接成功：巡线待机，电机未启动");
-  } else {
-    setMessage(`以 ${baudRate} 连接但小车无回应，可断开后选择其他波特率再试`, true);
   }
 }
 
@@ -775,7 +780,7 @@ async function connectSerial() {
   }
 
   try {
-    setMessage("请选择已配对的 JDY-31 / HC-05…");
+    setMessage("请选择已配对的 JDY-31-SPP…");
     const selectedPort = await navigator.serial.requestPort({
       filters: [{ bluetoothServiceClassId: "00001101-0000-1000-8000-00805f9b34fb" }]
     });
@@ -1002,7 +1007,7 @@ function processLine(line) {
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
   }
 
-  const uartBaud = line.match(/^UART BAUD=(4800|9600|19200|38400|57600|115200)$/i);
+  const uartBaud = line.match(/^UART BAUD=(9600|19200|38400|57600|115200|128000)$/i);
   if (uartBaud) {
     ui.baudRateSelect.value = uartBaud[1];
     ui.deviceName.textContent = `SPP 蓝牙已连接 · 小车确认 ${uartBaud[1]}`;
