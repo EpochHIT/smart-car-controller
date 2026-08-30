@@ -441,6 +441,11 @@ public class MainActivity extends Activity {
 
     private final class BluetoothBridge {
         @JavascriptInterface
+        public String getBuildTime() {
+            return BuildConfig.BUILD_TIME;
+        }
+
+        @JavascriptInterface
         public boolean hasLastDevice() {
             return !preferences.getString(PREF_LAST_MAC, "").isEmpty();
         }

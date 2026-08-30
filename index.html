@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260830-fixed-57600">
+  <link rel="stylesheet" href="styles.css?v=20260830-build-time">
 </head>
 <body>
   <main class="app-shell">
@@ -26,7 +26,7 @@
 
     <section class="card quick-panel">
       <div class="connect-row">
-        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31-SPP</strong><small>SPP · 57600 · 8N1</small></div>
+        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31-SPP</strong><small>SPP · 57600 · 8N1<br><span class="build-badge" id="webBuildBadge">网页 --</span> · <span id="firmwareBuildBadge">固件 --</span></small></div>
         <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>重连</button>
         <strong class="device-name" id="deviceName">--</strong>
@@ -226,6 +226,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-fixed-57600"></script>
+  <script src="app.js?v=20260830-build-time"></script>
 </body>
 </html>

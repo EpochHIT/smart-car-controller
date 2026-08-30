@@ -9,9 +9,9 @@ const nativeBluetooth = window.AndroidBluetooth || null;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
-  platformBadge: $("platformBadge"),
+  platformBadge: $("platformBadge"), webBuildBadge: $("webBuildBadge"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  deviceName: $("deviceName"), message: $("message"),
+  deviceName: $("deviceName"), message: $("message"), firmwareBuildBadge: $("firmwareBuildBadge"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
   joystickPad: $("joystickPad"), joystickKnob: $("joystickKnob"), joystickValue: $("joystickValue"),
@@ -920,6 +920,33 @@ function numberList(value, expectedLength) {
   return values.length === expectedLength && values.every(Number.isFinite) ? values : null;
 }
 
+function shortBuildTime(value) {
+  const match = String(value || "").match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+  return match ? `${match[2]}-${match[3]} ${match[4]}:${match[5]}` : "--";
+}
+
+function browserBuildTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "--";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
+async function loadWebBuildTime() {
+  if (nativeBluetooth?.getBuildTime) {
+    ui.webBuildBadge.textContent = `APP ${shortBuildTime(nativeBluetooth.getBuildTime())}`;
+    return;
+  }
+  try {
+    const response = await fetch(`app.js?build-time=${Date.now()}`, { method: "HEAD", cache: "no-store" });
+    ui.webBuildBadge.textContent = `网页 ${browserBuildTime(new Date(response.headers.get("last-modified")))}`;
+  } catch (_) {
+    ui.webBuildBadge.textContent = "网页 本地版";
+  }
+}
+
 function protocolCrc8(text) {
   let crc = 0;
   for (let index = 0; index < text.length; index++) {
@@ -949,6 +976,8 @@ function showParameterValue(input, value) {
 }
 
 function processLine(line) {
+  const firmwareBuild = line.match(/(?:^FW BUILD=|\sFW=)(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/i);
+  if (firmwareBuild) ui.firmwareBuildBadge.textContent = `固件 ${shortBuildTime(firmwareBuild[1])}`;
   if (/^STANDBY - send MODE/i.test(line)) lastLineSequence = null;
   const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
   if (modeMatch) {
@@ -1574,6 +1603,7 @@ if (nativeBluetooth) {
   document.documentElement.classList.add("native-app");
   ui.platformBadge.textContent = "ANDROID APP";
 }
+loadWebBuildTime();
 loadGrantedDevices();
 selectTab("sensor");
 drawJoystick(0, 0);
