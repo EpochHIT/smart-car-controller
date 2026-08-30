@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260830-mobile-spp">
+  <link rel="stylesheet" href="styles.css?v=20260830-baud-diagnose">
 </head>
 <body>
   <main class="app-shell">
@@ -34,7 +34,6 @@
         <span class="hidden-readout" id="modeValue">STANDBY</span><span class="hidden-readout" id="motionValue">STOP</span>
       </div>
       <button class="button stop-button full requires-connection" data-command="STOP" type="button" disabled>■ 全局停车</button>
-      <a class="button primary full install-app-link" id="androidAppLink" href="https://github.com/EpochHIT/smart-car-controller/releases/latest/download/smart-car-controller.apk" hidden>安装 Android APP 连接经典蓝牙</a>
       <p class="message" id="message" aria-live="polite">先在手机系统蓝牙中配对，再点连接</p>
     </section>
 
@@ -227,6 +226,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-mobile-spp"></script>
+  <script src="app.js?v=20260830-baud-diagnose"></script>
 </body>
 </html>

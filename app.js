@@ -6,12 +6,10 @@ const EXPECTED_PROTOCOL_VERSION = 16;
 const BLUETOOTH_BAUD_RATE = 57600;
 const SERIAL_BUFFER_SIZE = 4096;
 const nativeBluetooth = window.AndroidBluetooth || null;
-const androidBrowser = /Android/i.test(navigator.userAgent) && !nativeBluetooth;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   platformBadge: $("platformBadge"),
-  androidAppLink: $("androidAppLink"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
   deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
@@ -628,7 +626,7 @@ function lastDeviceLabel() {
 }
 
 function updateConnectionControls() {
-  ui.connectButton.disabled = state.connected || androidBrowser;
+  ui.connectButton.disabled = state.connected;
   ui.disconnectButton.disabled = !state.connected && !(nativeBluetooth ? nativeHasLastDevice : lastGrantedSerialPort);
   ui.disconnectButton.textContent = state.connected ? "断开" : "重连";
   if (!state.connected) ui.deviceName.textContent = lastDeviceLabel();
@@ -764,13 +762,8 @@ async function connectSerial() {
     nativeBluetooth.requestConnect();
     return;
   }
-  if (androidBrowser) {
-    ui.androidAppLink.hidden = false;
-    setMessage("手机 Chrome/Edge 不能直接连接 JDY-31/HC-05 的经典蓝牙 SPP，请安装上方 Android APP", true);
-    return;
-  }
   if (!navigator.serial) {
-    setMessage("此浏览器不支持网页串口；请使用电脑 Chrome/Edge，手机请安装 Android APP", true);
+    setMessage("当前浏览器没有提供网页串口接口，请换用之前已经连接成功的 Chrome/Edge 环境", true);
     return;
   }
 
@@ -1567,11 +1560,6 @@ setConnected(false);
 if (nativeBluetooth) {
   document.documentElement.classList.add("native-app");
   ui.platformBadge.textContent = "ANDROID APP";
-} else if (androidBrowser) {
-  ui.androidAppLink.hidden = false;
-  ui.connectButton.disabled = true;
-  ui.platformBadge.textContent = "MOBILE WEB";
-  setMessage("JDY-31 是经典蓝牙 SPP，手机浏览器不能直接连接；请安装 Android APP", true);
 }
 loadGrantedDevices();
 selectTab("sensor");
