@@ -64,6 +64,7 @@ public class MainActivity extends Activity {
     private SharedPreferences preferences;
     private BluetoothSocket socket;
     private OutputStream outputStream;
+    private boolean connecting;
     private int pendingBluetoothAction = ACTION_NONE;
     private String pendingFileName;
     private String pendingFileText;
@@ -102,9 +103,10 @@ public class MainActivity extends Activity {
         webView.loadUrl("file:///android_asset/index.html");
     }
 
-    private boolean hasConnectPermission() {
+    private boolean hasBluetoothPermissions() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
+            (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED &&
+             checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED);
     }
 
     private void beginBluetoothAction(int action) {
@@ -114,9 +116,9 @@ public class MainActivity extends Activity {
             notifyNotice("这台手机不支持蓝牙", true);
             return;
         }
-        if (!hasConnectPermission()) {
+        if (!hasBluetoothPermissions()) {
             requestPermissions(
-                new String[]{Manifest.permission.BLUETOOTH_CONNECT},
+                new String[]{Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN},
                 REQUEST_BLUETOOTH_PERMISSION
             );
             return;
@@ -142,7 +144,9 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode != REQUEST_BLUETOOTH_PERMISSION) return;
-        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        boolean granted = grantResults.length > 0;
+        for (int result : grantResults) granted &= result == PackageManager.PERMISSION_GRANTED;
+        if (granted) {
             beginBluetoothAction(pendingBluetoothAction);
         } else {
             pendingBluetoothAction = ACTION_NONE;
@@ -285,43 +289,83 @@ public class MainActivity extends Activity {
     }
 
     private void connectDevice(BluetoothDevice device) {
+        synchronized (connectionLock) {
+            if (connecting) {
+                notifyNotice("蓝牙连接正在进行，请稍等", false);
+                return;
+            }
+        }
         closeConnection(false, false);
+        synchronized (connectionLock) {
+            connecting = true;
+        }
         String name = safeDeviceName(device);
         String mac = device.getAddress();
         notifyNotice("正在连接 " + name + "…", false);
         new Thread(() -> {
-            BluetoothSocket candidate = null;
-            try {
-                candidate = device.createRfcommSocketToServiceRecord(SPP_UUID);
-                synchronized (connectionLock) {
-                    socket = candidate;
-                    outputStream = null;
-                }
-                candidate.connect();
-                InputStream input = candidate.getInputStream();
-                OutputStream output = candidate.getOutputStream();
-                synchronized (connectionLock) {
-                    if (socket != candidate) {
-                        candidate.close();
-                        return;
-                    }
-                    outputStream = output;
-                }
-                preferences.edit().putString(PREF_LAST_MAC, mac).apply();
-                notifyBluetoothState(true, name, mac, "", false);
-                readLoop(candidate, input);
-            } catch (IOException error) {
-                if (candidate != null) {
-                    try { candidate.close(); } catch (IOException ignored) {}
-                }
-                synchronized (connectionLock) {
-                    if (socket == candidate) {
-                        socket = null;
+            IOException firstError = null;
+            IOException lastError = null;
+
+            for (int attempt = 0; attempt < 2; attempt++) {
+                BluetoothSocket candidate = null;
+                try {
+                    /* JDY-31 使用非安全 SPP。短重试只用于等待旧串口通道释放，
+                     * 不回退到安全连接，避免重新触发配对认证。 */
+                    candidate = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID);
+                    synchronized (connectionLock) {
+                        if (!connecting) {
+                            candidate.close();
+                            return;
+                        }
+                        socket = candidate;
                         outputStream = null;
                     }
+                    bluetoothAdapter.cancelDiscovery();
+                    candidate.connect();
+                    InputStream input = candidate.getInputStream();
+                    OutputStream output = candidate.getOutputStream();
+                    synchronized (connectionLock) {
+                        if (socket != candidate || !connecting) {
+                            candidate.close();
+                            return;
+                        }
+                        outputStream = output;
+                        connecting = false;
+                    }
+                    preferences.edit().putString(PREF_LAST_MAC, mac).apply();
+                    notifyBluetoothState(true, name, mac, "", false);
+                    readLoop(candidate, input);
+                    return;
+                } catch (IOException error) {
+                    if (firstError == null) firstError = error;
+                    lastError = error;
+                    if (candidate != null) {
+                        try { candidate.close(); } catch (IOException ignored) {}
+                    }
+                    synchronized (connectionLock) {
+                        if (socket == candidate) {
+                            socket = null;
+                            outputStream = null;
+                        }
+                    }
+                    if (attempt == 0) {
+                        try { Thread.sleep(300); } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
                 }
-                notifyBluetoothState(false, name, mac, "连接失败：" + error.getMessage(), false);
             }
+
+            synchronized (connectionLock) {
+                connecting = false;
+                socket = null;
+                outputStream = null;
+            }
+            String detail = lastError != null && lastError.getMessage() != null ?
+                lastError.getMessage() : firstError != null ? firstError.toString() : "未知错误";
+            notifyBluetoothState(false, name, mac,
+                "连接失败：" + detail + "。请先断开串口助手或其他已连接页面，再重试。", false);
         }, "smart-car-connect").start();
     }
 
@@ -365,6 +409,7 @@ public class MainActivity extends Activity {
     private void closeConnection(boolean notify, boolean planned) {
         BluetoothSocket current;
         synchronized (connectionLock) {
+            connecting = false;
             current = socket;
             socket = null;
             outputStream = null;

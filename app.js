@@ -11,6 +11,7 @@ const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   platformBadge: $("platformBadge"), webBuildBadge: $("webBuildBadge"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
+  copyConnectionDiagnosticButton: $("copyConnectionDiagnosticButton"),
   deviceName: $("deviceName"), message: $("message"), firmwareBuildBadge: $("firmwareBuildBadge"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
@@ -106,8 +107,14 @@ let sensorSessionNumber = 1;
 let nativeDeviceLabel = "";
 let nativeHasLastDevice = false;
 let receivedByteCount = 0;
+let receivedLineCount = 0;
+let receivedNewlineCount = 0;
+let receivedNonAsciiCount = 0;
+let recentRawBytes = [];
+let recentReceivedLines = [];
+let latestConnectionDiagnostic = "";
 
-const decoder = new TextDecoder("utf-8");
+let decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
 const paramInputs = new Map(
   [...document.querySelectorAll(".param-input")].map((input) => [input.dataset.param, input])
@@ -116,6 +123,63 @@ const paramInputs = new Map(
 function setMessage(text, isError = false) {
   ui.message.textContent = text;
   ui.message.classList.toggle("error", isError);
+}
+
+function resetReceiveDiagnostics() {
+  receiveBuffer = "";
+  receivedByteCount = 0;
+  receivedLineCount = 0;
+  receivedNewlineCount = 0;
+  receivedNonAsciiCount = 0;
+  recentRawBytes = [];
+  recentReceivedLines = [];
+  decoder = new TextDecoder("utf-8");
+}
+
+function receiveSnapshot() {
+  return {
+    bytes: receivedByteCount,
+    lines: receivedLineCount,
+    newlines: receivedNewlineCount,
+    nonAscii: receivedNonAsciiCount
+  };
+}
+
+function rawHexPreview() {
+  return recentRawBytes.map((value) => value.toString(16).padStart(2, "0").toUpperCase()).join(" ") || "--";
+}
+
+function receiveSummarySince(before) {
+  const bytes = receivedByteCount - before.bytes;
+  const lines = receivedLineCount - before.lines;
+  const newlines = receivedNewlineCount - before.newlines;
+  const nonAscii = receivedNonAsciiCount - before.nonAscii;
+  const received = recentReceivedLines.filter((item) => item.number > before.lines).map((item) => item.text);
+  const preview = received.slice(-2).join(" | ");
+  if (bytes === 0) return "RX=0 字节：手机没有收到小车回复";
+  if (lines === 0) {
+    return `RX=${bytes} 字节，但没有完整文本行（换行=${newlines}，非ASCII=${nonAscii}，HEX ${rawHexPreview()}）`;
+  }
+  return `RX=${bytes} 字节，完整行=${lines}，非ASCII=${nonAscii}${preview ? `，最近：${preview}` : ""}`;
+}
+
+function showConnectionDiagnostic(reason) {
+  latestConnectionDiagnostic = [
+    `原因：${reason}`,
+    `设备：${nativeDeviceLabel || ui.deviceName.textContent || "--"}`,
+    `${ui.webBuildBadge.textContent} · ${ui.firmwareBuildBadge.textContent}`,
+    `连接=${state.connected ? "是" : "否"} 模式=${state.mode} 波特率=${BLUETOOTH_BAUD_RATE}`,
+    `RX字节=${receivedByteCount} 完整行=${receivedLineCount} 换行=${receivedNewlineCount} 非ASCII=${receivedNonAsciiCount} 未成行字符=${receiveBuffer.length}`,
+    `最近HEX：${rawHexPreview()}`,
+    "最近完整行：",
+    ...(recentReceivedLines.length ? recentReceivedLines.slice(-8).map((item) => item.text) : ["--"])
+  ].join("\n");
+  ui.copyConnectionDiagnosticButton.hidden = false;
+}
+
+function clearConnectionDiagnostic() {
+  latestConnectionDiagnostic = "";
+  ui.copyConnectionDiagnosticButton.hidden = true;
 }
 
 async function writeClipboardText(text) {
@@ -454,7 +518,7 @@ async function activateMode(mode, force = false) {
   const maxAttempts = 3;
   const ackTimeout = 1000;
   const retryDelay = 150;
-  const bytesBeforeHandshake = receivedByteCount;
+  const receiveBeforeHandshake = receiveSnapshot();
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     addLog(`${command} TRY ${attempt}/${maxAttempts}`, "tx");
     const acknowledgement = beginModeAck(mode, ackTimeout);
@@ -463,14 +527,16 @@ async function activateMode(mode, force = false) {
       return false;
     }
     if (await acknowledgement) {
-      addLog(`MODE ACK ${mode.toUpperCase()} RX_BYTES=${receivedByteCount - bytesBeforeHandshake}`);
+      const summary = receiveSummarySince(receiveBeforeHandshake);
+      addLog(`MODE ACK ${mode.toUpperCase()} ${summary}`);
+      clearConnectionDiagnostic();
       if (mode === "sensor" && !force) await sendCommand("SENSOR", true);
       return true;
     }
     if (attempt < maxAttempts) await delay(retryDelay);
   }
-  const received = receivedByteCount - bytesBeforeHandshake;
-  const diagnostic = received === 0 ? "握手期间 RX=0 字节" : `收到 ${received} 字节，但没有合法模式确认`;
+  const diagnostic = receiveSummarySince(receiveBeforeHandshake);
+  showConnectionDiagnostic(`${command} 没有合法模式确认；${diagnostic}`);
   addLog(`MODE ACK FAILED ${diagnostic}`, "error");
   setMessage(`小车没有确认${mode === "sensor" ? "巡线" : "遥控"}模式：${diagnostic}`, true);
   return false;
@@ -708,10 +774,23 @@ function setConnected(connected) {
 
 function receiveBytes(value) {
   receivedByteCount += value.byteLength;
+  for (const byte of value) {
+    if (byte === 10) receivedNewlineCount += 1;
+    if (byte !== 9 && byte !== 10 && byte !== 13 && (byte < 32 || byte > 126)) receivedNonAsciiCount += 1;
+    recentRawBytes.push(byte);
+  }
+  if (recentRawBytes.length > 48) recentRawBytes.splice(0, recentRawBytes.length - 48);
   receiveBuffer += decoder.decode(value, { stream: true }).replace(/\r/g, "");
   const lines = receiveBuffer.split("\n");
   receiveBuffer = lines.pop() || "";
-  lines.map((line) => line.trim()).filter(Boolean).forEach(processLine);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    receivedLineCount += 1;
+    recentReceivedLines.push({ number: receivedLineCount, text: line.slice(0, 180) });
+    if (recentReceivedLines.length > 12) recentReceivedLines.shift();
+    processLine(line);
+  }
 }
 
 window.onAndroidBluetoothData = (base64) => {
@@ -725,6 +804,8 @@ window.onAndroidBluetoothNotice = (message, isError = false) => setMessage(messa
 
 window.onAndroidBluetoothState = async (info) => {
   if (info.connected) {
+    resetReceiveDiagnostics();
+    clearConnectionDiagnostic();
     nativeHasLastDevice = true;
     nativeDeviceLabel = `${info.name || "SPP 蓝牙"}${info.mac ? ` · ${info.mac}` : ""}`;
     intentionalDisconnect = false;
@@ -747,6 +828,7 @@ window.onAndroidBluetoothState = async (info) => {
     setConnected(false);
   }
   if (info.message) {
+    showConnectionDiagnostic(info.message);
     setMessage(info.message, true);
     addLog(info.message, "error");
   }
@@ -762,7 +844,11 @@ async function readSerialPort(port) {
       if (value) receiveBytes(value);
     }
   } catch (error) {
-    if (serialPort === port && !intentionalDisconnect) addLog(`串口读取失败：${error.message}`, "error");
+    if (serialPort === port && !intentionalDisconnect) {
+      const diagnostic = `串口读取失败：${error.name || "Error"} · ${error.message}`;
+      showConnectionDiagnostic(diagnostic);
+      addLog(diagnostic, "error");
+    }
   } finally {
     try { reader.releaseLock(); } catch (_) { /* 已释放 */ }
     if (serialReader === reader) serialReader = null;
@@ -780,6 +866,8 @@ async function readSerialPort(port) {
 async function connectSerialPort(port) {
   setMessage("正在连接蓝牙串口…");
   await port.open({ baudRate: BLUETOOTH_BAUD_RATE, bufferSize: SERIAL_BUFFER_SIZE });
+  resetReceiveDiagnostics();
+  clearConnectionDiagnostic();
   serialPort = port;
   serialWriter = port.writable.getWriter();
   lastGrantedSerialPort = port;
@@ -797,6 +885,7 @@ async function connectSerialPort(port) {
 
 async function connectSerial() {
   if (nativeBluetooth) {
+    clearConnectionDiagnostic();
     setMessage("请选择已配对的小车蓝牙，可按名称或 MAC 搜索");
     nativeBluetooth.requestConnect();
     return;
@@ -806,6 +895,7 @@ async function connectSerial() {
     return;
   }
 
+  clearConnectionDiagnostic();
   try {
     setMessage("请选择已配对的 JDY-31-SPP…");
     const selectedPort = await navigator.serial.requestPort({
@@ -820,7 +910,9 @@ async function connectSerial() {
     serialPort = null;
     serialWriter = null;
     setConnected(false);
-    setMessage(`串口连接失败：${error.message}`, true);
+    const diagnostic = `串口连接失败：${error.name || "Error"} · ${error.message}`;
+    showConnectionDiagnostic(diagnostic);
+    setMessage(diagnostic, true);
     addLog(error.message, "error");
   }
 }
@@ -831,12 +923,14 @@ function connectSelectedDevice() {
 
 async function connectLastDevice() {
   if (nativeBluetooth) {
+    clearConnectionDiagnostic();
     setMessage("正在连接上次使用的小车蓝牙…");
     nativeBluetooth.connectLast();
     return;
   }
   const device = lastGrantedSerialPort;
   if (!device) return;
+  clearConnectionDiagnostic();
   try {
     setMessage("正在连接上次授权的蓝牙设备…");
     await connectSerialPort(device);
@@ -844,7 +938,9 @@ async function connectLastDevice() {
     serialPort = null;
     serialWriter = null;
     setConnected(false);
-    setMessage(`上次设备连接失败：${error.message}`, true);
+    const diagnostic = `上次设备连接失败：${error.name || "Error"} · ${error.message}`;
+    showConnectionDiagnostic(diagnostic);
+    setMessage(diagnostic, true);
     addLog(error.message, "error");
   }
 }
@@ -1086,6 +1182,7 @@ function processLine(line) {
         "数据帧 CRC 校验失败，已丢弃并等待下一帧。";
     }
     if (frameError) {
+      showConnectionDiagnostic(frameError);
       if (protocolVersion !== EXPECTED_PROTOCOL_VERSION) state.firmwareCompatible = false;
       if (ui.firmwareWarning.textContent !== frameError) {
         setMessage(frameError, true);
@@ -1106,6 +1203,7 @@ function processLine(line) {
     const sequence = numberField(fields, "SEQ");
     if (!raw || !normalized || !pid || !peakPid || !peakNormalized || !endNormalized || !Number.isFinite(sequence)) {
       const error = "数据帧字段不完整，已丢弃并等待下一帧。";
+      showConnectionDiagnostic(error);
       if (ui.firmwareWarning.textContent !== error) {
         setMessage(error, true);
         addLog(error, "error");
@@ -1478,6 +1576,15 @@ function exportCsv() {
 
 ui.connectButton.addEventListener("click", connectSelectedDevice);
 ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectCurrentDevice() : connectLastDevice());
+ui.copyConnectionDiagnosticButton.addEventListener("click", async () => {
+  if (!latestConnectionDiagnostic) return;
+  try {
+    await writeClipboardText(latestConnectionDiagnostic);
+    setMessage("通信诊断已复制，可以直接发给我");
+  } catch {
+    setMessage("复制失败，请截图通信诊断按钮上方的报错", true);
+  }
+});
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", async () => {
   const tab = button.dataset.tab;
   if (paramsRequestPending && (tab === "sensor" || tab === "remote") && state.mode !== tab) {
