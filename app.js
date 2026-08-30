@@ -4,13 +4,13 @@ const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const EXPECTED_PROTOCOL_VERSION = 16;
 const SERIAL_BUFFER_SIZE = 4096;
+const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;
 
 const ui = {
   connectionState: $("connectionState"), connectionText: $("connectionText"),
   platformBadge: $("platformBadge"),
   connectButton: $("connectButton"), disconnectButton: $("disconnectButton"),
-  baudRateSelect: $("baudRateSelect"), autoBaudToggle: $("autoBaudToggle"),
   deviceName: $("deviceName"), message: $("message"),
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
@@ -103,7 +103,6 @@ let lastLineSequence = null;
 let sensorSessionStartedAt = Date.now();
 let nativeDeviceLabel = "";
 let nativeHasLastDevice = false;
-let autoBaudEnabled = true;
 let receivedByteCount = 0;
 
 const decoder = new TextDecoder("utf-8");
@@ -425,9 +424,9 @@ async function activateMode(mode, force = false) {
   if (state.mode === mode && !force) return true;
   if (pendingModeAck?.mode === mode) return pendingModeAck.promise;
   const command = mode === "sensor" ? "MODE SENSOR" : "MODE REMOTE";
-  const maxAttempts = autoBaudEnabled ? 12 : 3;
-  const ackTimeout = autoBaudEnabled ? 400 : 1200;
-  const retryDelay = autoBaudEnabled ? 50 : 180;
+  const maxAttempts = 3;
+  const ackTimeout = 1000;
+  const retryDelay = 150;
   const bytesBeforeHandshake = receivedByteCount;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     addLog(`${command} TRY ${attempt}/${maxAttempts}`, "tx");
@@ -638,8 +637,6 @@ function lastDeviceLabel() {
 
 function updateConnectionControls() {
   ui.connectButton.disabled = state.connected;
-  ui.baudRateSelect.disabled = state.connected || Boolean(nativeBluetooth);
-  ui.autoBaudToggle.disabled = state.connected || Boolean(nativeBluetooth);
   ui.disconnectButton.disabled = !state.connected && !(nativeBluetooth ? nativeHasLastDevice : lastGrantedSerialPort);
   ui.disconnectButton.textContent = state.connected ? "断开" : "重连";
   if (!state.connected) ui.deviceName.textContent = lastDeviceLabel();
@@ -750,16 +747,15 @@ async function readSerialPort(port) {
 }
 
 async function connectSerialPort(port) {
-  const baudRate = Number(ui.baudRateSelect.value);
   setMessage("正在连接蓝牙串口…");
-  await port.open({ baudRate, bufferSize: SERIAL_BUFFER_SIZE });
+  await port.open({ baudRate: BLUETOOTH_BAUD_RATE, bufferSize: SERIAL_BUFFER_SIZE });
   serialPort = port;
   serialWriter = port.writable.getWriter();
   lastGrantedSerialPort = port;
   intentionalDisconnect = false;
-  ui.deviceName.textContent = `SPP 蓝牙已连接 · 尝试 ${baudRate}`;
+  ui.deviceName.textContent = `SPP 蓝牙已连接 · ${BLUETOOTH_BAUD_RATE}`;
   setConnected(true);
-  addLog(`CONNECTED SPP TRY_BAUD=${baudRate} 8N1`);
+  addLog(`CONNECTED SPP BAUD=${BLUETOOTH_BAUD_RATE} 8N1`);
   serialReadTask = readSerialPort(port);
   selectTab("sensor");
   await delay(350);
@@ -1007,9 +1003,8 @@ function processLine(line) {
     ui.voltageValue.textContent = `${(telemetry.voltageMv / 1000).toFixed(2)}V`;
   }
 
-  const uartBaud = line.match(/^UART BAUD=(9600|19200|38400|57600|115200|128000)$/i);
+  const uartBaud = line.match(/^UART BAUD=(57600)$/i);
   if (uartBaud) {
-    ui.baudRateSelect.value = uartBaud[1];
     ui.deviceName.textContent = `SPP 蓝牙已连接 · 小车确认 ${uartBaud[1]}`;
   }
 
@@ -1423,13 +1418,6 @@ function exportCsv() {
 
 ui.connectButton.addEventListener("click", connectSelectedDevice);
 ui.disconnectButton.addEventListener("click", () => state.connected ? disconnectCurrentDevice() : connectLastDevice());
-ui.autoBaudToggle.addEventListener("click", () => {
-  if (state.connected || nativeBluetooth) return;
-  autoBaudEnabled = !autoBaudEnabled;
-  ui.autoBaudToggle.setAttribute("aria-pressed", String(autoBaudEnabled));
-  ui.autoBaudToggle.textContent = `自动探测：${autoBaudEnabled ? "开" : "关"}`;
-  setMessage(autoBaudEnabled ? "连接时自动探测常用波特率" : `按所选 ${ui.baudRateSelect.value} 普通连接`);
-});
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", async () => {
   const tab = button.dataset.tab;
   if (paramsRequestPending && (tab === "sensor" || tab === "remote") && state.mode !== tab) {

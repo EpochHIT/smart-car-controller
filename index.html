@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260830-autobaud">
+  <link rel="stylesheet" href="styles.css?v=20260830-fixed-57600">
 </head>
 <body>
   <main class="app-shell">
@@ -26,7 +26,7 @@
 
     <section class="card quick-panel">
       <div class="connect-row">
-        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31-SPP</strong><small>SPP · <select class="baud-select" id="baudRateSelect" aria-label="连接波特率"><option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option><option value="57600" selected>57600</option><option value="115200">115200</option><option value="128000">128000</option></select> · 8N1 <button class="baud-auto-toggle" id="autoBaudToggle" type="button" aria-pressed="true">自动探测：开</button></small></div>
+        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31-SPP</strong><small>SPP · 57600 · 8N1</small></div>
         <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>重连</button>
         <strong class="device-name" id="deviceName">--</strong>
@@ -226,6 +226,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-jdy31-57600"></script>
+  <script src="app.js?v=20260830-fixed-57600"></script>
 </body>
 </html>
