@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="STM32 智能车巡线与蓝牙调试控制台">
   <title>智能车巡线控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260830-android">
+  <link rel="stylesheet" href="styles.css?v=20260830-ultrasonic">
 </head>
 <body>
   <main class="app-shell">
@@ -121,26 +121,15 @@
       </details>
 
       <details class="card fold-card obstacle-fold">
-        <summary>避障详情 · <span id="avoidanceStatus">当前关闭</span></summary>
+        <summary>前向超声波 · <span id="avoidanceStatus">避障关闭，测距运行</span></summary>
         <div class="sensor-hero">
           <div class="distance"><strong id="distanceValue">--</strong><span>cm</span></div>
           <div class="data-grid two">
-            <div><small>绕行方向</small><strong id="routeValue">NONE</strong></div>
-            <div><small>舵机</small><strong id="servoValue">--</strong></div>
-            <div><small>左侧 cm</small><strong id="leftDistanceValue">--</strong></div>
-            <div><small>右侧 cm</small><strong id="rightDistanceValue">--</strong></div>
+            <div><small>触发距离</small><strong><span id="thresholdValue">--</span> cm</strong></div>
+            <div><small>固定绕行动作</small><strong id="routeValue">待机</strong></div>
           </div>
         </div>
-        <details class="inline-details">
-          <summary>避障硬件测试</summary>
-          <label class="range-row" for="servoAngle"><span>舵机角度</span><output id="servoAngleValue">90°</output></label>
-          <input class="range sensor-only" id="servoAngle" type="range" min="0" max="180" value="90" disabled>
-          <div class="button-grid two-buttons">
-            <button class="button primary sensor-only" id="sendServoButton" type="button" disabled>转到 90°</button>
-            <button class="button ghost sensor-only" data-command="SERVO AUTO" type="button" disabled>恢复自动</button>
-          </div>
-          <span class="hidden-readout" id="servoControlValue">AUTO</span><span class="hidden-readout" id="thresholdValue">--</span>
-        </details>
+        <p class="group-hint">进入巡线模式后会一直测前方距离，停车时也能读取；上方“开启”只决定遇障时是否执行写死的右侧绕行动作。</p>
       </details>
     </section>
 
@@ -214,7 +203,8 @@
 
         <details class="parameter-group">
           <summary>一次避障</summary>
-          <div class="parameter-grid"><label>障碍阈值 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="0" max="400" value="30" disabled></label><label>舵机左角<input class="param-input requires-connection" data-param="SERVO_L" type="number" min="0" max="180" value="150" disabled></label><label>舵机中角<input class="param-input requires-connection" data-param="SERVO_C" type="number" min="0" max="180" value="90" disabled></label><label>舵机右角<input class="param-input requires-connection" data-param="SERVO_R" type="number" min="0" max="180" value="30" disabled></label></div>
+          <div class="parameter-grid"><label>障碍触发距离 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="2" max="400" value="30" disabled></label></div>
+          <p class="group-hint">超声波只看正前方；绕行方向与各段时间暂时写在固件里，先完成一次稳定避障后再按实测调整。</p>
         </details>
 
       </section>
@@ -236,6 +226,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-android"></script>
+  <script src="app.js?v=20260830-ultrasonic"></script>
 </body>
 </html>

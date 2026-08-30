@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 15;
+const EXPECTED_PROTOCOL_VERSION = 16;
 const BLUETOOTH_BAUD_RATE = 57600;
 const SERIAL_BUFFER_SIZE = 4096;
 const nativeBluetooth = window.AndroidBluetooth || null;
@@ -19,8 +19,6 @@ const ui = {
   calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
   turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
   distanceValue: $("distanceValue"), routeValue: $("routeValue"), thresholdValue: $("thresholdValue"),
-  servoValue: $("servoValue"), servoControlValue: $("servoControlValue"),
-  leftDistanceValue: $("leftDistanceValue"), rightDistanceValue: $("rightDistanceValue"),
   lineLeftTransValue: $("lineLeftTransValue"), lineLeftLongValue: $("lineLeftLongValue"),
   lineRightTransValue: $("lineRightTransValue"), lineRightLongValue: $("lineRightLongValue"),
   lineLeftTransBar: $("lineLeftTransBar"), lineLeftLongBar: $("lineLeftLongBar"),
@@ -40,7 +38,6 @@ const ui = {
   sensorSessionNote: $("sensorSessionNote"), sensorCaptureStatus: $("sensorCaptureStatus"),
   newSensorSessionButton: $("newSensorSessionButton"), copySensorSessionButton: $("copySensorSessionButton"),
   exportSensorSessionButton: $("exportSensorSessionButton"),
-  servoAngle: $("servoAngle"), servoAngleValue: $("servoAngleValue"), sendServoButton: $("sendServoButton"),
   tuningStatus: $("tuningStatus"), readParamsButton: $("readParamsButton"),
   applyParamsButton: $("applyParamsButton"), cancelParamsButton: $("cancelParamsButton"),
   runNote: $("runNote"), sampleInterval: $("sampleInterval"), sampleNowButton: $("sampleNowButton"),
@@ -57,8 +54,7 @@ const state = {
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
   pwmLeft: null, pwmRight: null, error: null, trim: null, voltageMv: null,
-  distance: null, route: "NONE", servo: null, servoControl: "AUTO",
-  leftDistance: null, rightDistance: null,
+  distance: null, route: "NONE",
   lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
   lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
   lineErrorX100: null, lineTrim: null, trackBase: null, lineSequence: null, lineFramesDropped: 0,
@@ -147,8 +143,7 @@ function snapshot() {
     target_left: telemetry.targetLeft, target_right: telemetry.targetRight,
     pwm_left: telemetry.pwmLeft, pwm_right: telemetry.pwmRight,
     straight_error: telemetry.error, straight_trim: telemetry.trim,
-    voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance,
-    route: telemetry.route, servo_deg: telemetry.servo, servo_control: telemetry.servoControl,
+    voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance, route: telemetry.route,
     line_left_trans: telemetry.lineLeftTrans, line_left_long: telemetry.lineLeftLong,
     line_right_trans: telemetry.lineRightTrans, line_right_long: telemetry.lineRightLong,
     line_left_trans_pct: telemetry.lineLeftTransPct, line_left_long_pct: telemetry.lineLeftLongPct,
@@ -399,7 +394,7 @@ function selectTab(name) {
   if (name === "sensor") drawSensorChart();
 }
 
-function beginModeAck(mode) {
+function beginModeAck(mode, timeoutMs = 1200) {
   if (pendingModeAck) {
     clearTimeout(pendingModeAck.timer);
     pendingModeAck.resolve(false);
@@ -410,7 +405,7 @@ function beginModeAck(mode) {
     if (pendingModeAck?.mode !== mode) return;
     pendingModeAck = null;
     resolveAck(false);
-  }, 2000);
+  }, timeoutMs);
   pendingModeAck = { mode, promise, resolve: resolveAck, timer };
   return promise;
 }
@@ -427,18 +422,21 @@ async function activateMode(mode, force = false) {
   if (!state.connected || (mode !== "sensor" && mode !== "remote")) return false;
   if (state.mode === mode && !force) return true;
   if (pendingModeAck?.mode === mode) return pendingModeAck.promise;
-  const acknowledgement = beginModeAck(mode);
   const command = mode === "sensor" ? "MODE SENSOR" : "MODE REMOTE";
-  if (!(await sendCommand(command))) {
-    resolveModeAck(mode, false);
-    return false;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const acknowledgement = beginModeAck(mode);
+    if (!(await sendCommand(command, true))) {
+      resolveModeAck(mode, false);
+      return false;
+    }
+    if (await acknowledgement) {
+      if (mode === "sensor" && !force) await sendCommand("SENSOR", true);
+      return true;
+    }
+    if (attempt < 3) await delay(180);
   }
-  if (!(await acknowledgement)) {
-    setMessage(`小车没有确认${mode === "sensor" ? "巡线" : "遥控"}模式，请重试`, true);
-    return false;
-  }
-  if (mode === "sensor" && !force) await sendCommand("LINE", true);
-  return true;
+  setMessage(`小车连续 3 次没有确认${mode === "sensor" ? "巡线" : "遥控"}模式，请检查固件协议和 57600 配置`, true);
+  return false;
 }
 
 function drawJoystick(x, y) {
@@ -541,7 +539,7 @@ function setTrackRunning(running) {
 function setAvoidance(enabled) {
   state.avoidance = enabled;
   ui.avoidanceValue.textContent = enabled ? "开启" : "关闭";
-  ui.avoidanceStatus.textContent = enabled ? "避障开启" : "避障关闭";
+  ui.avoidanceStatus.textContent = enabled ? "避障开启，测距运行" : "避障关闭，测距运行";
   document.querySelectorAll(".avoid-choice").forEach((button) => {
     button.classList.toggle("selected", button.dataset.avoid === (enabled ? "ON" : "OFF"));
   });
@@ -571,7 +569,7 @@ function startLinePolling() {
   stopLinePolling();
   if (!state.connected || state.mode !== "sensor") return;
   linePollTimer = setInterval(() => {
-    if (state.connected && state.mode === "sensor") sendCommand("LINE", true);
+    if (state.connected && state.mode === "sensor") sendCommand("SENSOR", true);
   }, 750);
 }
 
@@ -692,6 +690,7 @@ window.onAndroidBluetoothState = async (info) => {
     setConnected(true);
     addLog(`CONNECTED APP SPP ${info.mac || ""}`.trim());
     selectTab("sensor");
+    await delay(350);
     if (await activateMode("sensor")) setMessage("连接成功：巡线待机，电机未启动");
     else setMessage("蓝牙已连接，但小车没有回应；请检查固件和 57600 配置", true);
     return;
@@ -749,6 +748,7 @@ async function connectSerialPort(port) {
   addLog(`CONNECTED SPP ${BLUETOOTH_BAUD_RATE} 8N1`);
   serialReadTask = readSerialPort(port);
   selectTab("sensor");
+  await delay(350);
   if (await activateMode("sensor")) {
     setMessage("连接成功：巡线待机，电机未启动");
   } else {
@@ -875,9 +875,9 @@ async function writeCommand(command, quiet = false) {
   }
   try {
     if (nativeBluetooth) {
-      if (!nativeBluetooth.write(`${command}\n`)) throw new Error("原生蓝牙串口不可写");
+      if (!nativeBluetooth.write(`${command}\r\n`)) throw new Error("原生蓝牙串口不可写");
     } else {
-      const data = encoder.encode(`${command}\n`);
+      const data = encoder.encode(`${command}\r\n`);
       if (!serialWriter) throw new Error("蓝牙串口不可写");
       await serialWriter.write(data);
     }
@@ -975,21 +975,18 @@ function processLine(line) {
     }
   }
 
-  const sensor = line.match(/^SENSOR D=(OUT|\d+) TH=(\d+) ROUTE=(NONE|LEFT|RIGHT|BLOCKED) SERVO=(\d+) CTRL=(AUTO|MANUAL) L=(OUT|\d+) R=(OUT|\d+)$/i);
-  if (sensor) {
-    telemetry.distance = sensor[1] === "OUT" ? null : Number(sensor[1]);
-    telemetry.route = sensor[3].toUpperCase();
-    telemetry.servo = Number(sensor[4]);
-    telemetry.servoControl = sensor[5].toUpperCase();
-    telemetry.leftDistance = sensor[6] === "OUT" ? null : Number(sensor[6]);
-    telemetry.rightDistance = sensor[7] === "OUT" ? null : Number(sensor[7]);
+  if (line.startsWith("SENSOR D=")) {
+    const fields = Object.fromEntries(line.slice(7).split(/\s+/).flatMap((token) => {
+      const split = token.indexOf("=");
+      return split > 0 ? [[token.slice(0, split).toUpperCase(), token.slice(split + 1)]] : [];
+    }));
+    telemetry.distance = fields.D === "OUT" ? null : numberField(fields, "D");
+    telemetry.route = (fields.ROUTE || "NONE").toUpperCase();
     ui.distanceValue.textContent = showDistance(telemetry.distance);
-    ui.thresholdValue.textContent = sensor[2];
-    ui.routeValue.textContent = telemetry.route;
-    ui.servoValue.textContent = `${telemetry.servo}°`;
-    ui.servoControlValue.textContent = telemetry.servoControl;
-    ui.leftDistanceValue.textContent = showDistance(telemetry.leftDistance);
-    ui.rightDistanceValue.textContent = showDistance(telemetry.rightDistance);
+    ui.thresholdValue.textContent = fields.TH || "--";
+    const routeLabels = { NONE: "待机", LEFT: "向左绕", RIGHT: "向右绕", STRAIGHT: "绕行直行段" };
+    ui.routeValue.textContent = routeLabels[telemetry.route] || telemetry.route;
+    if (fields.AVOID === "ON" || fields.AVOID === "OFF") setAvoidance(fields.AVOID === "ON");
   }
 
   const sensorVoltage = line.match(/^SENSOR VBAT_MV=(\d+)/i);
@@ -1215,11 +1212,6 @@ function processLine(line) {
   else if (/^ERR\b/i.test(line)) setMessage(line, true);
 
   if (!line.startsWith("LINE ")) addLog(line, /^ERR\b/i.test(line) ? "error" : "rx");
-}
-
-function updateServoReadout() {
-  ui.servoAngleValue.textContent = `${ui.servoAngle.value}°`;
-  ui.sendServoButton.textContent = `转到 ${ui.servoAngle.value}°`;
 }
 
 async function startTurnCalibration(direction) {
@@ -1481,17 +1473,6 @@ ui.calibrateRightButton.addEventListener("click", () => startTurnCalibration("ri
 ui.finishTurnCalibrationButton.addEventListener("click", finishTurnCalibration);
 ui.saveTurnCalibrationButton.addEventListener("click", saveTurnCalibration);
 
-ui.servoAngle.addEventListener("input", updateServoReadout);
-ui.sendServoButton.addEventListener("click", () => sendCommand(`SERVO ${ui.servoAngle.value}`));
-document.querySelectorAll(".servo-preset").forEach((button) => {
-  button.addEventListener("click", () => {
-    const angle = knownParams[button.dataset.servoParam] ?? Number(paramInputs.get(button.dataset.servoParam).value);
-    ui.servoAngle.value = angle;
-    updateServoReadout();
-    sendCommand(`SERVO ${angle}`);
-  });
-});
-
 ui.lineCalibrationButton.addEventListener("click", async () => {
   if (state.lineCalibrating) {
     await sendCommand("LINE CAL STOP");
@@ -1590,6 +1571,5 @@ setAvoidance(false);
 setLineCalibrated(false);
 setLineCalibrating(false);
 updateTurn90Status();
-updateServoReadout();
 updateLogProfile();
 updateSensorCaptureStatus();
