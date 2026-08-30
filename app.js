@@ -96,6 +96,7 @@ let joystickLastCommand = "";
 let calibrationDirection = null;
 let calibrationSuggestion = null;
 let linePollTimer = null;
+let linePollTick = 0;
 let pendingModeAck = null;
 let resumePollingAfterParams = false;
 let paramsRequestPending = false;
@@ -599,14 +600,18 @@ function setLineCalibrating(calibrating) {
 function stopLinePolling() {
   if (linePollTimer) clearInterval(linePollTimer);
   linePollTimer = null;
+  linePollTick = 0;
 }
 
 function startLinePolling() {
   stopLinePolling();
   if (!state.connected || state.mode !== "sensor") return;
   linePollTimer = setInterval(() => {
-    if (state.connected && state.mode === "sensor") sendCommand("SENSOR", true);
-  }, 750);
+    if (!state.connected || state.mode !== "sensor") return;
+    linePollTick += 1;
+    /* 四路与巡线状态约 10 Hz；距离、轮速和电压约 2 Hz。 */
+    sendCommand(linePollTick % 5 === 0 ? "SENSOR" : "LINE", true);
+  }, 100);
 }
 
 function setMode(mode) {
