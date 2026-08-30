@@ -4,7 +4,7 @@
 
 Android APP：<https://github.com/EpochHIT/smart-car-controller/releases/latest/download/smart-car-controller.apk>
 
-面向 STM32F103 智能车的手机巡线调试工具。目前使用 JDY-31-SPP / HC-05，通信为 57600、8N1。推荐直接安装 Android APP；网页版可作为备用。
+面向 STM32F103 智能车的巡线调试工具。目前使用 JDY-31-SPP / HC-05，模块 UART 通信为 57600、8N1。Android 手机必须安装原生 APP 才能连接经典蓝牙 SPP；普通手机 Chrome/Edge 网页不能直接连接。网页版通信只用于支持 Bluetooth RFCOMM Web Serial 的桌面 Chrome/Edge。
 
 APP 会列出系统中已经配对的经典蓝牙设备，支持按名称或 MAC 地址搜索，并记住上次连接。首次使用前仍需在 Android 系统蓝牙中完成配对。
 
