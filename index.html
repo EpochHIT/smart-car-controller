@@ -78,7 +78,7 @@
         <div class="section-title"><h2>四路原始值</h2><span id="lineErrorValue">ADC 0–4095</span></div>
         <div class="calibration-strip"><span id="lineCalibrationValue">已内置本车实测档案</span><strong>停车时也会持续读取</strong></div>
         <p class="calibration-note">已按 08-31 当前安装高度分别校准四路；换高度、换引脚或换板后再重新采集数据。</p>
-        <p class="orientation-note"><strong>识别逻辑：</strong>左横、右横独立归一化后做直线 PID；左竖和右竖必须同时越过阈值才确认十字。4095 只表示 ADC 饱和，不再直接当作方向。</p>
+        <p class="orientation-note"><strong>识别逻辑：</strong>左横、右横独立归一化后做巡线 PID；只有左右竖同时越过阈值且车身仍接近线路中心才确认十字，急弯会继续纠偏。4095 只表示 ADC 饱和，不再直接当作方向。</p>
         <div class="sensor-meter-grid">
           <article class="sensor-meter cyan"><small>左横 · PA4</small><strong id="lineLeftTransValue">--</strong><div class="meter-track"><span id="lineLeftTransBar"></span></div><em id="lineLeftTransMeta">等待数据</em></article>
           <article class="sensor-meter violet"><small>左竖 · PA5</small><strong id="lineLeftLongValue">--</strong><div class="meter-track"><span id="lineLeftLongBar"></span></div><em id="lineLeftLongMeta">等待数据</em></article>
@@ -184,12 +184,12 @@
           <div class="parameter-grid">
             <label>低速基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
             <label>最高基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="18.00" disabled></label>
+            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="50.00" disabled></label>
             <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.25" disabled></label>
-            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="700" disabled></label>
+            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="1600" disabled></label>
             <label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
           </div>
-          <p class="group-hint">先在低速下调 Kp/Kd：纠偏不够再加 Kp，左右摆动明显再加 Kd；稳定后才提高速度。</p>
+          <p class="group-hint">Kp 到 50 后不要继续增加；若急弯修正量长期顶住上限，应调整最大差速。左右摆动明显再增加 Kd，稳定后才提高速度。</p>
         </details>
 
         <details class="parameter-group">
