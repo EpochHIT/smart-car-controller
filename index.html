@@ -157,6 +157,17 @@
       </section>
 
       <details class="card fold-card">
+        <summary>PWM → CPS 实测</summary>
+        <p class="group-hint pwm-test-hint">输入固定 PWM 后，小车会向前运行 1.6 秒并自动停车，固件直接计算左右轮与平均 CPS。请放在足够长的直线上；这只是测速，不会改写巡线参数。轮速闭环当前默认最多输出 80% PWM，95% 测试用于测物理余量。</p>
+        <div class="pwm-test-row">
+          <label for="pwmTestInput">测试 PWM %</label>
+          <input class="remote-only" id="pwmTestInput" type="number" min="1" max="100" step="1" value="95" inputmode="numeric" disabled>
+          <button class="button primary remote-only" id="pwmTestButton" type="button" disabled>开始 1.6 秒测速</button>
+        </div>
+        <div class="pwm-test-result" id="pwmTestResult">尚未测速</div>
+      </details>
+
+      <details class="card fold-card">
         <summary>基础运动与 90° 标定</summary>
         <div class="direction-pad">
           <button class="drive-button remote-only forward" data-command="FORWARD" type="button" disabled><b>↑</b><small>前进</small></button>

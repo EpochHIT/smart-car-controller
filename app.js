@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 19;
+const EXPECTED_PROTOCOL_VERSION = 20;
 const SERIAL_BUFFER_SIZE = 4096;
 const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;
@@ -16,6 +16,7 @@ const ui = {
   modeValue: $("modeValue"), motionValue: $("motionValue"), voltageValue: $("voltageValue"),
   remoteLock: $("remoteLock"), sensorLock: $("sensorLock"),
   joystickPad: $("joystickPad"), joystickKnob: $("joystickKnob"), joystickValue: $("joystickValue"),
+  pwmTestInput: $("pwmTestInput"), pwmTestButton: $("pwmTestButton"), pwmTestResult: $("pwmTestResult"),
   turn90Status: $("turn90Status"), calibrateLeftButton: $("calibrateLeftButton"),
   calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
   turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
@@ -52,7 +53,8 @@ const ui = {
 const state = {
   connected: false, mode: "standby", motion: "stop", gear: "HIGH",
   trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false,
-  lineCalibrated: false, lineCalibrating: false, firmwareCompatible: null, trackEnd: "NONE"
+  lineCalibrated: false, lineCalibrating: false, firmwareCompatible: null, trackEnd: "NONE",
+  pwmTestRunning: false
 };
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
@@ -486,6 +488,7 @@ function captureSensorHistory() {
     effective_kp: Number.isFinite(telemetry.trackEffectiveKpX100) ? telemetry.trackEffectiveKpX100 / 100 : null,
     target_left_cps: telemetry.targetLeft, target_right_cps: telemetry.targetRight,
     actual_left_cps: telemetry.leftCps, actual_right_cps: telemetry.rightCps,
+    pwm_left_pct: telemetry.pwmLeft, pwm_right_pct: telemetry.pwmRight,
     left_tracking_error_cps: leftTrackingError, right_tracking_error_cps: rightTrackingError,
     line_frames_dropped: telemetry.lineFramesDropped,
     avoidance: state.avoidance ? "ON" : "OFF", distance_cm: telemetry.distance, obstacle_route: telemetry.route,
@@ -526,6 +529,7 @@ function sensorSessionTable(separator) {
     ["D项CPS", "track_d_cps"], ["实际修正CPS", "line_trim_cps"], ["有效Kp", "effective_kp"],
     ["左目标CPS", "target_left_cps"], ["右目标CPS", "target_right_cps"],
     ["左实际CPS", "actual_left_cps"], ["右实际CPS", "actual_right_cps"],
+    ["左实际PWM%", "pwm_left_pct"], ["右实际PWM%", "pwm_right_pct"],
     ["左轮误差_实际减目标", "left_tracking_error_cps"], ["右轮误差_实际减目标", "right_tracking_error_cps"],
     ["避障", "avoidance"], ["超声波cm", "distance_cm"], ["避障阶段", "obstacle_route"],
     ["结束原因", "track_end"], ["结束毫秒", "track_end_ms"]
@@ -832,6 +836,7 @@ function setMode(mode) {
   if (recording && recordingMode !== mode) stopSampling();
   joystickLastCommand = "";
   if (mode !== "remote") {
+    state.pwmTestRunning = false;
     setMotion("stop");
     centerJoystick(false);
   }
@@ -856,7 +861,13 @@ function updateAvailability() {
   document.querySelectorAll(".sensor-only").forEach((element) => { element.disabled = !sensorReady || paramsRequestPending; });
   ui.modeValue.textContent = state.mode.toUpperCase();
   ui.saveTurnCalibrationButton.disabled = !state.connected || !calibrationSuggestion;
-  ui.remoteLock.textContent = remoteReady ? "遥控已就绪" : state.connected ? "正在切换…" : "连接后可用";
+  if (state.pwmTestRunning) {
+    document.querySelectorAll(".remote-only").forEach((element) => { element.disabled = true; });
+  }
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.disabled = state.pwmTestRunning && button.dataset.tab !== "remote";
+  });
+  ui.remoteLock.textContent = state.pwmTestRunning ? "PWM 测速中" : remoteReady ? "遥控已就绪" : state.connected ? "正在切换…" : "连接后可用";
   ui.sensorLock.textContent = sensorReady ? "传感器读取中" : state.connected ? "正在切换…" : "连接后自动就绪";
   if (state.trackRunning) ui.trackStartButton.textContent = "巡线运行中";
   else if (state.lineCalibrating) ui.trackStartButton.textContent = "正在标定…";
@@ -901,6 +912,7 @@ function setConnected(connected) {
     state.mode = "standby";
     state.motion = "stop";
     state.firmwareCompatible = null;
+    state.pwmTestRunning = false;
     lastLineSequence = null;
     telemetry.lineSequence = null;
     telemetry.lineFramesDropped = 0;
@@ -1271,10 +1283,29 @@ function processLine(line) {
     resolveModeAck(reportedMode);
   }
   if (/^OK STOPPED MODE\b/i.test(line)) {
+    state.pwmTestRunning = false;
     settleStopAck(true);
     setMotion("stop");
     if (/SENSOR$/i.test(line)) setTrackRunning(false);
     centerJoystick(false);
+    updateAvailability();
+  }
+
+  const pwmTestStart = line.match(/^OK PWM TEST START P=(\d+)\s+pct$/i);
+  if (pwmTestStart) {
+    state.pwmTestRunning = true;
+    ui.pwmTestResult.textContent = `${pwmTestStart[1]}% PWM 测速中…小车将在 1.6 秒后自动停车`;
+    setMessage("PWM 测速中，请保持前方直线畅通");
+    updateAvailability();
+  }
+
+  const pwmTestDone = line.match(/^PWM TEST DONE P=(\d+) L=(\d+) R=(\d+) AVG=(\d+) SAMPLES=(\d+)$/i);
+  if (pwmTestDone) {
+    const [, pwm, left, right, average, samples] = pwmTestDone;
+    state.pwmTestRunning = false;
+    ui.pwmTestResult.textContent = `${pwm}% PWM：左 ${left} · 右 ${right} · 平均 ${average} CPS（${samples} 个稳定样本）`;
+    setMessage(`PWM 测速完成：平均 ${average} CPS；该值没有自动写入巡线参数`);
+    updateAvailability();
   }
 
   const motionMatch = line.match(/MOTION=(STOP|FORWARD|BACKWARD|LEFT|RIGHT|JOYSTICK|TURN90_LEFT|TURN90_RIGHT)\b/i);
@@ -1357,6 +1388,7 @@ function processLine(line) {
     const normalized = numberList(fields.N, 4);
     const pid = numberList(fields.PID, 4);
     const wheelCps = numberList(fields.W, 4);
+    const wheelPwm = numberList(fields.PWM, 2);
     const tuning = fields.TUNE === undefined ? null : numberList(fields.TUNE, 3);
     const peakPid = numberList(fields.PKPID, 4);
     const peakNormalized = numberList(fields.PKN, 4);
@@ -1365,7 +1397,7 @@ function processLine(line) {
     const effectiveKpX100 = numberField(fields, "KPE");
     const trackGearNumber = fields.GEAR === undefined ? null : numberField(fields, "GEAR");
     const metadataInvalid = fields.TUNE !== undefined && (!tuning || !Number.isInteger(trackGearNumber) || trackGearNumber < 0 || trackGearNumber > 2);
-    if (!raw || !normalized || !pid || !wheelCps || !peakPid || !peakNormalized || !endNormalized ||
+    if (!raw || !normalized || !pid || !wheelCps || !wheelPwm || !peakPid || !peakNormalized || !endNormalized ||
         !Number.isFinite(sequence) || !Number.isFinite(effectiveKpX100) || metadataInvalid) {
       const error = "数据帧字段不完整，已丢弃并等待下一帧。";
       showConnectionDiagnostic(error);
@@ -1402,6 +1434,7 @@ function processLine(line) {
     updateTrackSpeedDisplay();
     [telemetry.trackP, telemetry.trackI, telemetry.trackD, telemetry.lineTrim] = pid;
     [telemetry.targetLeft, telemetry.targetRight, telemetry.leftCps, telemetry.rightCps] = wheelCps;
+    [telemetry.pwmLeft, telemetry.pwmRight] = wheelPwm;
     telemetry.trackEffectiveKpX100 = effectiveKpX100;
     if (tuning) {
       [telemetry.trackKpX100, telemetry.trackKiX1000, telemetry.trackKdX100] = tuning;
@@ -1765,7 +1798,7 @@ function exportCsv() {
   const mode = currentLogMode();
   const records = recordsForMode(mode);
   const remoteColumns = ["time", "elapsed_ms", "note", "motion", "remote_speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv"];
-  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "effective_kp", "target_left", "target_right", "left_cps", "right_cps", "left_tracking_error_cps", "right_tracking_error_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
+  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "effective_kp", "target_left", "target_right", "left_cps", "right_cps", "pwm_left", "pwm_right", "left_tracking_error_cps", "right_tracking_error_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
   const columns = mode === "sensor" ? sensorColumns : remoteColumns;
   const rows = [columns.join(",")];
   for (const record of records) {
@@ -1819,6 +1852,18 @@ document.querySelectorAll(".gear-choice").forEach((button) => {
   button.addEventListener("click", async () => {
     if (await sendCommand(`GEAR ${button.dataset.gear}`)) setGear(button.dataset.gear);
   });
+});
+
+ui.pwmTestButton.addEventListener("click", async () => {
+  const pwm = Number(ui.pwmTestInput.value);
+  if (!Number.isInteger(pwm) || pwm < 1 || pwm > 100) {
+    setMessage("测试 PWM 请输入 1～100 的整数百分比", true);
+    return;
+  }
+  if (!(await activateMode("remote", true))) return;
+  if (recording) stopSampling();
+  ui.pwmTestResult.textContent = `正在请求 ${pwm}% PWM 测速…`;
+  await sendCommand(`PWM TEST ${pwm}`);
 });
 
 document.querySelectorAll(".track-gear-choice").forEach((button) => {
