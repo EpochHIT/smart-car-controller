@@ -427,7 +427,10 @@ function captureSensorHistory() {
     left_horizontal: raw[0], left_vertical: raw[1], right_horizontal: raw[2], right_vertical: raw[3],
     left_horizontal_pct: telemetry.lineLeftTransPct, left_vertical_pct: telemetry.lineLeftLongPct,
     right_horizontal_pct: telemetry.lineRightTransPct, right_vertical_pct: telemetry.lineRightLongPct,
-    line_error_x100: telemetry.lineErrorX100, track_state: state.trackState, track_running: state.trackRunning ? 1 : 0
+    line_error_x100: telemetry.lineErrorX100, track_state: state.trackState, track_running: state.trackRunning ? 1 : 0,
+    track_base_cps: telemetry.trackBase, track_p_cps: telemetry.trackP, track_i_cps: telemetry.trackI,
+    track_d_cps: telemetry.trackD, line_trim_cps: telemetry.lineTrim,
+    track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs
   });
   if (sensorHistory.length > SENSOR_HISTORY_LIMIT) sensorHistory.splice(0, sensorHistory.length - SENSOR_HISTORY_LIMIT);
   updateSensorCaptureStatus();
@@ -446,7 +449,10 @@ function sensorSessionTable(separator) {
     ["本地时间", "local_time"], ["UTC时间", "time"], ["组号", "session_number"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"], ["序号", "sequence"],
     ["左横_PA4", "left_horizontal"], ["左竖_PA5", "left_vertical"], ["右竖_PB0", "right_vertical"], ["右横_PB1", "right_horizontal"],
     ["左横相对值", "left_horizontal_pct"], ["左竖相对值", "left_vertical_pct"], ["右竖相对值", "right_vertical_pct"], ["右横相对值", "right_horizontal_pct"],
-    ["误差x100", "line_error_x100"], ["直线状态", "track_state"], ["是否运行", "track_running"]
+    ["误差x100", "line_error_x100"], ["直线状态", "track_state"], ["是否运行", "track_running"],
+    ["基础速度CPS", "track_base_cps"], ["P项CPS", "track_p_cps"], ["I项CPS", "track_i_cps"],
+    ["D项CPS", "track_d_cps"], ["实际修正CPS", "line_trim_cps"],
+    ["结束原因", "track_end"], ["结束毫秒", "track_end_ms"]
   ];
   const encode = separator === "," ? csvCell : (value) => String(value ?? "").replace(/[\t\r\n]+/g, " ");
   return [columns.map(([label]) => encode(label)).join(separator),
