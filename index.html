@@ -55,7 +55,7 @@
         </div>
         <div class="button-grid two-buttons track-run-buttons">
           <button class="button primary sensor-only" id="trackStartButton" type="button" disabled>正在读取传感器…</button>
-          <button class="button stop-button sensor-only" id="trackStopButton" data-command="TRACK STOP" type="button" disabled>■ 结束巡线</button>
+          <button class="button stop-button sensor-only" id="trackStopButton" data-command="STOP" type="button" disabled>■ 结束巡线</button>
         </div>
         <div class="gear-row">
           <span>基础速度</span>
@@ -184,11 +184,11 @@
           <div class="parameter-grid">
             <label>低速基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
             <label>最高基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="50.00" disabled></label>
-            <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.25" disabled></label>
-            <label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
+            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="100" step="0.01" value="50.00" disabled></label>
+            <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="1.00" disabled></label>
+            <label>横向有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
           </div>
-          <p class="group-hint">巡线 PID 不再设置差速上限：内侧轮算到负速度时停转，单轮正向目标最高仍为 8000 CPS。左右摆动明显再增加 Kd，稳定后才提高速度。</p>
+          <p class="group-hint">15% 表示左右横线圈都低于该值时判定丢线，用来排除空白区域的微小噪声。当前低速实测 Kp=50、Kd=1；Kp 允许调到100，但不要因为能调就直接加大。</p>
         </details>
 
         <details class="parameter-group">
@@ -227,6 +227,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260831-no-trim-limit"></script>
+  <script src="app.js?v=20260831-stop-confirm"></script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 17;
+const EXPECTED_PROTOCOL_VERSION = 18;
 const SERIAL_BUFFER_SIZE = 4096;
 const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;
@@ -99,6 +99,7 @@ let calibrationSuggestion = null;
 let linePollTimer = null;
 let linePollTick = 0;
 let pendingModeAck = null;
+let pendingStopAck = null;
 let resumePollingAfterParams = false;
 let paramsRequestPending = false;
 let lastLineSequence = null;
@@ -675,6 +676,52 @@ function stopLinePolling() {
   linePollTick = 0;
 }
 
+function settleStopAck(confirmed) {
+  if (!pendingStopAck) return;
+  const { resolve, timer } = pendingStopAck;
+  pendingStopAck = null;
+  clearTimeout(timer);
+  resolve(confirmed);
+}
+
+function beginStopAck(timeoutMs = 650) {
+  settleStopAck(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!pendingStopAck || pendingStopAck.timer !== timer) return;
+      pendingStopAck = null;
+      resolve(false);
+    }, timeoutMs);
+    pendingStopAck = { resolve, timer };
+  });
+}
+
+async function requestVehicleStop({ resumePolling = true, quiet = false } = {}) {
+  const shouldResume = resumePolling && state.mode === "sensor";
+  stopLinePolling();
+  setMotion("stop");
+  centerJoystick(false);
+  joystickLastCommand = "";
+  setMessage("正在等待小车确认停车…");
+  if (!quiet) addLog("STOP", "tx");
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const ack = beginStopAck();
+    const sent = await sendCommand("STOP", true);
+    if (!sent) settleStopAck(false);
+    if (sent && await ack) {
+      setTrackRunning(false);
+      setMessage("小车已确认停车");
+      if (shouldResume && state.mode === "sensor") startLinePolling();
+      return true;
+    }
+    if (attempt < 2) await delay(80);
+  }
+
+  setMessage("未收到小车停车确认：请立即切断电机电源，再检查蓝牙通信", true);
+  return false;
+}
+
 function startLinePolling() {
   stopLinePolling();
   if (!state.connected || state.mode !== "sensor") return;
@@ -973,7 +1020,10 @@ async function loadGrantedDevices() {
 async function disconnectCurrentDevice() {
   if (!state.connected) return;
   intentionalDisconnect = true;
-  await sendCommand("STOP");
+  if (!(await requestVehicleStop({ resumePolling: false, quiet: true }))) {
+    intentionalDisconnect = false;
+    return;
+  }
   if (nativeBluetooth) {
     nativeBluetooth.disconnect();
     return;
@@ -994,6 +1044,7 @@ async function disconnectCurrentDevice() {
 function handleDisconnected() {
   const planned = intentionalDisconnect;
   intentionalDisconnect = false;
+  settleStopAck(false);
   receiveBuffer = "";
   setConnected(false);
   ui.deviceName.textContent = lastDeviceLabel();
@@ -1119,6 +1170,7 @@ function processLine(line) {
     resolveModeAck(reportedMode);
   }
   if (/^OK STOPPED MODE\b/i.test(line)) {
+    settleStopAck(true);
     setMotion("stop");
     if (/SENSOR$/i.test(line)) setTrackRunning(false);
     centerJoystick(false);
@@ -1363,7 +1415,10 @@ function processLine(line) {
     centerJoystick(false);
   }
   if (/^OK TRACK STARTED$/i.test(line)) setTrackRunning(true);
-  if (/^OK TRACK STOPPED$/i.test(line)) setTrackRunning(false);
+  if (/^OK TRACK STOPPED$/i.test(line)) {
+    settleStopAck(true);
+    setTrackRunning(false);
+  }
   if (/^ERR TRACK NO LINE$/i.test(line)) {
     setTrackRunning(false);
     setTrackState("LOST");
@@ -1604,10 +1659,14 @@ document.querySelectorAll(".tab-button").forEach((button) => button.addEventList
 
 document.querySelectorAll("button[data-command]:not([data-mode])").forEach((button) => {
   button.addEventListener("click", async () => {
-    if (!(await sendCommand(button.dataset.command))) return;
+    const command = button.dataset.command;
+    if (command === "STOP" || command === "TRACK STOP") {
+      await requestVehicleStop();
+      return;
+    }
+    if (!(await sendCommand(command))) return;
     const motions = { FORWARD: "forward", BACKWARD: "backward", LEFT: "left", RIGHT: "right", STOP: "stop", "TURN90 LEFT": "turn90_left", "TURN90 RIGHT": "turn90_right" };
-    if (motions[button.dataset.command]) setMotion(motions[button.dataset.command]);
-    if (button.dataset.command === "STOP") centerJoystick(false);
+    if (motions[command]) setMotion(motions[command]);
   });
 });
 
