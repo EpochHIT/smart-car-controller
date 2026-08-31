@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 16;
+const EXPECTED_PROTOCOL_VERSION = 17;
 const SERIAL_BUFFER_SIZE = 4096;
 const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;

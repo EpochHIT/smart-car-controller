@@ -186,10 +186,9 @@
             <label>最高基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
             <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="50.00" disabled></label>
             <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.25" disabled></label>
-            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="1600" disabled></label>
             <label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
           </div>
-          <p class="group-hint">Kp 到 50 后不要继续增加；若急弯修正量长期顶住上限，应调整最大差速。左右摆动明显再增加 Kd，稳定后才提高速度。</p>
+          <p class="group-hint">巡线 PID 不再设置差速上限：内侧轮算到负速度时停转，单轮正向目标最高仍为 8000 CPS。左右摆动明显再增加 Kd，稳定后才提高速度。</p>
         </details>
 
         <details class="parameter-group">
@@ -228,6 +227,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260831-sharp-turn"></script>
+  <script src="app.js?v=20260831-no-trim-limit"></script>
 </body>
 </html>
