@@ -76,9 +76,9 @@
 
       <section class="card line-card">
         <div class="section-title"><h2>四路原始值</h2><span id="lineErrorValue">ADC 0–4095</span></div>
-        <div class="calibration-strip"><span id="lineCalibrationValue">首次需标定一次</span><strong>停车时也会持续读取</strong></div>
-        <p class="calibration-note">范围标定只需首次或更换传感器后做一次；保存到小车后，重新开机不用重复。</p>
-        <p class="orientation-note"><strong>当前阶段：</strong>只用左横、右横做直线 PID；左竖、右竖与十字只记录。0 或 4095 表示接近 ADC 量程边界，不直接代表线路方向。</p>
+        <div class="calibration-strip"><span id="lineCalibrationValue">已内置本车实测档案</span><strong>停车时也会持续读取</strong></div>
+        <p class="calibration-note">已按 08-31 当前安装高度分别校准四路；换高度、换引脚或换板后再重新采集数据。</p>
+        <p class="orientation-note"><strong>识别逻辑：</strong>左横、右横独立归一化后做直线 PID；左竖和右竖必须同时越过阈值才确认十字。4095 只表示 ADC 饱和，不再直接当作方向。</p>
         <div class="sensor-meter-grid">
           <article class="sensor-meter cyan"><small>左横 · PA4</small><strong id="lineLeftTransValue">--</strong><div class="meter-track"><span id="lineLeftTransBar"></span></div><em id="lineLeftTransMeta">等待数据</em></article>
           <article class="sensor-meter violet"><small>左竖 · PA5</small><strong id="lineLeftLongValue">--</strong><div class="meter-track"><span id="lineLeftLongBar"></span></div><em id="lineLeftLongMeta">等待数据</em></article>
@@ -87,7 +87,7 @@
         </div>
         <p class="firmware-warning" id="firmwareWarning" hidden></p>
         <div class="button-grid two-buttons track-run-buttons"><button class="button ghost sensor-only" data-command="LINE" type="button" disabled>读取当前值</button><button class="button ghost sensor-only" id="copySensorButton" type="button" disabled>复制四路数据</button></div>
-        <button class="button primary full sensor-only" id="lineCalibrationButton" type="button" disabled>开始范围标定</button>
+        <button class="button primary full sensor-only" id="lineCalibrationButton" type="button" disabled hidden>重新范围标定</button>
         <details class="inline-details">
           <summary>查看 PID 与失败诊断</summary>
           <div class="pid-live">
@@ -101,14 +101,14 @@
             <span>结束原因 <strong id="trackEndValue">--</strong></span>
           </div>
         </details>
-        <p class="group-hint calibration-hint">标定时不启动电机，手动移动小车，让横、竖线圈都经历“有导线”和“无导线”。</p>
+        <p class="group-hint calibration-hint" hidden>传感器安装发生变化后，请重新导出直线、左右修正和十字数据再更新档案。</p>
       </section>
 
       <details class="card fold-card waveform-card" open>
         <summary>四路波形与数据导出</summary>
         <p class="group-hint waveform-hint">连接后自动保存当前这一组，切换场景会写进每条数据；图中只显示最近 120 条，本组最多保留 2000 条。</p>
         <div class="capture-label-row">
-          <label>当前测量<select id="sensorScenario"><option value="straight" selected>直线</option><option value="left_offset">需向右修正（车身左偏）</option><option value="right_offset">需向左修正（车身右偏）</option><option value="blank">离开线路</option><option value="cross">十字（暂只记录）</option><option value="pin_test">固定姿态换引脚（硬件测试）</option><option value="custom">自定义</option></select></label>
+          <label>当前测量<select id="sensorScenario"><option value="straight" selected>直线</option><option value="left_offset">需向右修正（车身左偏）</option><option value="right_offset">需向左修正（车身右偏）</option><option value="blank">离开线路</option><option value="cross">十字</option><option value="pin_test">固定姿态换引脚（硬件测试）</option><option value="custom">自定义</option></select></label>
           <label>补充说明<input id="sensorSessionNote" type="text" placeholder="例如：低速、车头略歪"></label>
         </div>
         <canvas id="sensorChart" width="640" height="260" aria-label="四路电感 ADC 波形"></canvas>
@@ -184,9 +184,9 @@
           <div class="parameter-grid">
             <label>低速基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_MIN_CPS" type="number" min="0" max="8000" value="3900" disabled></label>
             <label>最高基础速度（CPS）<input class="param-input requires-connection" data-param="TRACK_BASE_CPS" type="number" min="0" max="8000" value="4300" disabled></label>
-            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="10.00" disabled></label>
-            <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.20" disabled></label>
-            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="600" disabled></label>
+            <label>Kp 纠偏力度<input class="param-input requires-connection" data-param="TRACK_KP_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="18.00" disabled></label>
+            <label>Kd 抑制摆动<input class="param-input requires-connection" data-param="TRACK_KD_X100" data-scale="100" type="number" min="0" max="50" step="0.01" value="0.25" disabled></label>
+            <label>最大差速修正（CPS）<input class="param-input requires-connection" data-param="TRACK_MAX_TRIM_CPS" type="number" min="0" max="2000" value="700" disabled></label>
             <label>有线阈值 %<input class="param-input requires-connection" data-param="TRACK_DETECT_PCT" type="number" min="0" max="100" value="15" disabled></label>
           </div>
           <p class="group-hint">先在低速下调 Kp/Kd：纠偏不够再加 Kp，左右摆动明显再加 Kd；稳定后才提高速度。</p>
@@ -228,6 +228,6 @@
       </section>
     </section>
   </main>
-  <script src="app.js?v=20260830-bt-diagnostic"></script>
+  <script src="app.js?v=20260831-sensor-profile"></script>
 </body>
 </html>

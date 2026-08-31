@@ -650,7 +650,7 @@ function setAvoidance(enabled) {
 
 function setLineCalibrated(calibrated) {
   state.lineCalibrated = calibrated;
-  ui.lineCalibrationValue.textContent = calibrated ? "已标定，可启动" : "首次需标定一次";
+  ui.lineCalibrationValue.textContent = calibrated ? "已加载每通道实测档案" : "固件未加载传感器档案";
   ui.lineCalibrationValue.classList.toggle("ready", calibrated);
   updateSensorMeters();
   updateAvailability();
@@ -658,7 +658,7 @@ function setLineCalibrated(calibrated) {
 
 function setLineCalibrating(calibrating) {
   state.lineCalibrating = calibrating;
-  ui.lineCalibrationButton.textContent = calibrating ? "完成并保存标定" : "开始范围标定";
+  ui.lineCalibrationButton.textContent = calibrating ? "完成并保存标定" : "重新范围标定";
   ui.lineCalibrationButton.classList.toggle("stop-button", calibrating);
   updateAvailability();
 }
