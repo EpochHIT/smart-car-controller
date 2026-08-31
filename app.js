@@ -32,6 +32,8 @@ const ui = {
   trackStopButton: $("trackStopButton"), trackPeakValue: $("trackPeakValue"),
   trackEndValue: $("trackEndValue"), trackPValue: $("trackPValue"), trackIValue: $("trackIValue"),
   trackDValue: $("trackDValue"), trackTrimValue: $("trackTrimValue"),
+  trackBaseValue: $("trackBaseValue"), trackHighSpeedInput: $("trackHighSpeedInput"),
+  applyTrackHighSpeedButton: $("applyTrackHighSpeedButton"), trackSpeedHint: $("trackSpeedHint"),
   lineCalibrationValue: $("lineCalibrationValue"), lineCalibrationButton: $("lineCalibrationButton"),
   firmwareWarning: $("firmwareWarning"),
   copySensorButton: $("copySensorButton"),
@@ -103,6 +105,7 @@ let pendingModeAck = null;
 let pendingStopAck = null;
 let resumePollingAfterParams = false;
 let paramsRequestPending = false;
+let pendingTrackSpeedValue = null;
 let lastLineSequence = null;
 let sensorSessionStartedAt = Date.now();
 let sensorSessionNumber = 1;
@@ -703,6 +706,24 @@ function setTrackGear(gear) {
   document.querySelectorAll(".track-gear-choice").forEach((button) => {
     button.classList.toggle("selected", button.dataset.trackGear === gear);
   });
+  updateTrackSpeedDisplay();
+}
+
+function updateTrackSpeedDisplay() {
+  const active = telemetry.trackBase;
+  ui.trackBaseValue.textContent = Number.isFinite(active) ? `${active} CPS` : "-- CPS";
+
+  const low = knownParams.TRACK_MIN_CPS;
+  const high = knownParams.TRACK_BASE_CPS;
+  if (Number.isFinite(low) && Number.isFinite(high)) {
+    const medium = Math.floor(low + (high - low) / 2);
+    ui.trackSpeedHint.textContent = `低档 ${low} · 中档 ${medium} · 高档 ${high}；停车时可修改高档。`;
+    if (pendingTrackSpeedValue === null && document.activeElement !== ui.trackHighSpeedInput) {
+      ui.trackHighSpeedInput.value = high;
+    }
+  } else if (Number.isFinite(active)) {
+    ui.trackSpeedHint.textContent = `当前${({ LOW: "低", MEDIUM: "中", HIGH: "高" })[state.trackGear] || ""}档已生效 ${active} CPS；停车时可修改高档。`;
+  }
 }
 
 function setTrackState(trackState) {
@@ -846,6 +867,8 @@ function updateAvailability() {
   ui.trackStartButton.disabled = !sensorReady || paramsRequestPending || state.trackRunning || state.firmwareCompatible !== true || !state.lineCalibrated || state.lineCalibrating;
   ui.trackStopButton.disabled = !sensorReady || !state.trackRunning;
   ui.lineCalibrationButton.disabled = !sensorReady || paramsRequestPending || state.trackRunning;
+  ui.trackHighSpeedInput.disabled = !sensorReady || paramsRequestPending || state.trackRunning;
+  ui.applyTrackHighSpeedButton.disabled = !sensorReady || paramsRequestPending || state.trackRunning;
   ui.readParamsButton.disabled = !state.connected || paramsRequestPending;
   ui.applyParamsButton.disabled = !state.connected || paramsRequestPending;
   ui.cancelParamsButton.disabled = !state.connected || paramsRequestPending;
@@ -882,6 +905,7 @@ function setConnected(connected) {
     telemetry.lineSequence = null;
     telemetry.lineFramesDropped = 0;
     paramsRequestPending = false;
+    pendingTrackSpeedValue = null;
     resumePollingAfterParams = false;
     ui.firmwareWarning.hidden = true;
     ui.firmwareWarning.textContent = "";
@@ -1375,6 +1399,7 @@ function processLine(line) {
     if (fields.END) state.trackEnd = fields.END.toUpperCase();
     if (state.trackEnd === "NONE") lastFailureSignature = "";
     telemetry.trackBase = numberField(fields, "BASE");
+    updateTrackSpeedDisplay();
     [telemetry.trackP, telemetry.trackI, telemetry.trackD, telemetry.lineTrim] = pid;
     [telemetry.targetLeft, telemetry.targetRight, telemetry.leftCps, telemetry.rightCps] = wheelCps;
     telemetry.trackEffectiveKpX100 = effectiveKpX100;
@@ -1454,18 +1479,38 @@ function processLine(line) {
       const input = paramInputs.get(key);
       input.value = showParameterValue(input, value);
     }
+    if (key === "TRACK_MIN_CPS" || key === "TRACK_BASE_CPS") updateTrackSpeedDisplay();
     if (key === "TURN90_L_COUNT" || key === "TURN90_R_COUNT") updateTurn90Status();
     if (key === "LINE_CAL" && source !== "STAGED") setLineCalibrated(value === 1);
   }
   if (/^PENDING=YES$/i.test(line)) ui.tuningStatus.textContent = "有暂存";
   if (/^PENDING=NO$/i.test(line)) ui.tuningStatus.textContent = "已同步";
   if (/^PARAMS END$/i.test(line)) {
+    const requestedTrackSpeed = pendingTrackSpeedValue;
+    const shouldResumeSensorPolling = resumePollingAfterParams && state.mode === "sensor";
+    pendingTrackSpeedValue = null;
     paramsRequestPending = false;
     paramsLoaded = true;
     ui.tuningStatus.textContent = "已读取";
-    if (resumePollingAfterParams && state.mode === "sensor") startLinePolling();
     resumePollingAfterParams = false;
     updateAvailability();
+    updateTrackSpeedDisplay();
+    if (requestedTrackSpeed !== null) {
+      if (knownParams.TRACK_BASE_CPS !== requestedTrackSpeed) {
+        setMessage(`高档速度未保存：必须不低于当前低档 ${knownParams.TRACK_MIN_CPS ?? "--"} CPS`, true);
+        if (shouldResumeSensorPolling) startLinePolling();
+      } else {
+        sendCommand("TRACK GEAR HIGH").then((sent) => {
+          if (sent) {
+            setTrackGear("HIGH");
+            setMessage(`高档已保存为 ${requestedTrackSpeed} CPS，并已切换到高档`);
+          }
+          if (shouldResumeSensorPolling) startLinePolling();
+        });
+      }
+    } else if (shouldResumeSensorPolling) {
+      startLinePolling();
+    }
   }
   if (/^OK SAVED TO FLASH$/i.test(line)) ui.tuningStatus.textContent = "已保存";
   if (/^OK LINE CAL START$/i.test(line)) {
@@ -1526,6 +1571,7 @@ function processLine(line) {
     setMessage("小车尚未进入巡线模式，请点“巡线”重试", true);
   }
   else if (/^ERR FLASH WRITE FAILED$/i.test(line)) {
+    pendingTrackSpeedValue = null;
     paramsRequestPending = false;
     if (resumePollingAfterParams && state.mode === "sensor") startLinePolling();
     resumePollingAfterParams = false;
@@ -1779,6 +1825,46 @@ document.querySelectorAll(".track-gear-choice").forEach((button) => {
   button.addEventListener("click", async () => {
     if (await sendCommand(`TRACK GEAR ${button.dataset.trackGear}`)) setTrackGear(button.dataset.trackGear);
   });
+});
+
+ui.applyTrackHighSpeedButton.addEventListener("click", async () => {
+  const value = Number(ui.trackHighSpeedInput.value);
+  if (!Number.isInteger(value) || value < 0 || value > 8000) {
+    setMessage("高档速度请输入 0～8000 的整数 CPS", true);
+    return;
+  }
+  if (state.trackRunning) {
+    setMessage("请先结束巡线，再保存新的高档速度", true);
+    return;
+  }
+  if (Number.isFinite(knownParams.TRACK_MIN_CPS) && value < knownParams.TRACK_MIN_CPS) {
+    setMessage(`高档速度不能低于低档 ${knownParams.TRACK_MIN_CPS} CPS`, true);
+    return;
+  }
+
+  if (recording) stopSampling();
+  pendingTrackSpeedValue = value;
+  paramsRequestPending = true;
+  resumePollingAfterParams = state.mode === "sensor";
+  if (resumePollingAfterParams) stopLinePolling();
+  updateAvailability();
+  setMessage(`正在保存高档 ${value} CPS…`);
+  if (!(await sendCommand(`SET TRACK_BASE_CPS ${value}`))) {
+    pendingTrackSpeedValue = null;
+    paramsRequestPending = false;
+    if (resumePollingAfterParams) startLinePolling();
+    resumePollingAfterParams = false;
+    updateAvailability();
+    return;
+  }
+  await delay(180);
+  if (!(await sendCommand("APPLY"))) {
+    pendingTrackSpeedValue = null;
+    paramsRequestPending = false;
+    if (resumePollingAfterParams) startLinePolling();
+    resumePollingAfterParams = false;
+    updateAvailability();
+  }
 });
 
 document.querySelectorAll(".avoid-choice").forEach((button) => {

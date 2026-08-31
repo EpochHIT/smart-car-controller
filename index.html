@@ -58,13 +58,19 @@
           <button class="button stop-button sensor-only" id="trackStopButton" data-command="STOP" type="button" disabled>■ 结束巡线</button>
         </div>
         <div class="gear-row">
-          <span>基础速度</span>
+          <span>基础速度 <strong id="trackBaseValue">-- CPS</strong></span>
           <div class="gear-switch" role="group" aria-label="巡线速度档">
             <button class="track-gear-choice sensor-only selected" data-track-gear="LOW" type="button" disabled>低</button>
             <button class="track-gear-choice sensor-only" data-track-gear="MEDIUM" type="button" disabled>中</button>
             <button class="track-gear-choice sensor-only" data-track-gear="HIGH" type="button" disabled>高</button>
           </div>
         </div>
+        <div class="track-speed-editor">
+          <label for="trackHighSpeedInput">自定义高档 CPS</label>
+          <input class="sensor-only" id="trackHighSpeedInput" type="number" min="0" max="8000" step="100" value="4300" inputmode="numeric" disabled>
+          <button class="button primary sensor-only" id="applyTrackHighSpeedButton" type="button" disabled>保存并切到高档</button>
+        </div>
+        <p class="track-speed-hint" id="trackSpeedHint">低档 3900 · 中档 4100 · 高档 4300；停车时可修改高档。</p>
         <div class="gear-row">
           <span>超声波避障</span>
           <div class="gear-switch two" role="group" aria-label="超声波避障开关">
@@ -78,7 +84,7 @@
         <div class="section-title"><h2>四路原始值</h2><span id="lineErrorValue">ADC 0–4095</span></div>
         <div class="calibration-strip"><span id="lineCalibrationValue">已内置本车实测档案</span><strong>停车时也会持续读取</strong></div>
         <p class="calibration-note">已按 08-31 当前安装高度分别校准四路；换高度、换引脚或换板后再重新采集数据。</p>
-        <p class="orientation-note"><strong>识别逻辑：</strong>左横、右横独立归一化后做巡线 PID；只有左右竖同时越过阈值且车身仍接近线路中心才确认十字。横向误差从 12 增加到 15 时会平滑加强纠偏，不再勉强分类急弯。4095 只表示 ADC 饱和，不直接当作方向。</p>
+        <p class="orientation-note"><strong>识别逻辑：</strong>左横、右横独立归一化后做巡线 PID；只有左右竖同时越过阈值且车身仍接近线路中心才确认十字。大误差同时出现双竖抬升或双横接近边缘时，才临时加强急弯纠偏。4095 只表示 ADC 饱和，不直接当作方向。</p>
         <div class="sensor-meter-grid">
           <article class="sensor-meter cyan"><small>左横 · PA4</small><strong id="lineLeftTransValue">--</strong><div class="meter-track"><span id="lineLeftTransBar"></span></div><em id="lineLeftTransMeta">等待数据</em></article>
           <article class="sensor-meter violet"><small>左竖 · PA5</small><strong id="lineLeftLongValue">--</strong><div class="meter-track"><span id="lineLeftLongBar"></span></div><em id="lineLeftLongMeta">等待数据</em></article>

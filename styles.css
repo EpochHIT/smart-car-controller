@@ -94,6 +94,12 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
 .gear-switch.two { grid-template-columns: repeat(2, 1fr); }
 .gear-choice, .track-gear-choice, .avoid-choice { min-height: 34px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 850; }
 .gear-choice.selected, .track-gear-choice.selected, .avoid-choice.selected { border-color: rgba(67, 213, 255, .35); background: rgba(67, 213, 255, .13); color: var(--cyan); }
+.gear-row > span strong { margin-left: 5px; color: var(--cyan); font: 850 .75rem ui-monospace, Consolas, monospace; }
+.track-speed-editor { display: grid; grid-template-columns: 1fr minmax(92px, 120px) auto; gap: 7px; align-items: center; margin-top: 8px; }
+.track-speed-editor label { color: var(--muted); font-size: .7rem; font-weight: 750; }
+.track-speed-editor input { width: 100%; min-height: 38px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: #071321; color: var(--text); font: 800 .82rem ui-monospace, Consolas, monospace; }
+.track-speed-editor .button { min-height: 38px; padding: 7px 10px; font-size: .7rem; }
+.track-speed-hint { margin: 6px 1px 0; color: var(--muted); font-size: .66rem; line-height: 1.45; }
 
 .direction-pad { display: grid; grid-template-columns: repeat(3, minmax(70px, 96px)); grid-template-rows: repeat(3, 62px); justify-content: center; gap: 7px; }
 .drive-button { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 13px; background: rgba(3, 11, 20, .52); cursor: pointer; }
@@ -245,6 +251,8 @@ button:disabled, input:disabled { cursor: not-allowed; opacity: .38; }
   .button-grid { grid-template-columns: repeat(2, 1fr); }
   .speed-stepper { grid-template-columns: 1fr 1fr; }
   .speed-stepper span { grid-column: 1 / -1; }
+  .track-speed-editor { grid-template-columns: 1fr auto; }
+  .track-speed-editor label { grid-column: 1 / -1; }
   .parameter-grid { grid-template-columns: 1fr; }
 }
 
