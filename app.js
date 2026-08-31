@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 18;
+const EXPECTED_PROTOCOL_VERSION = 19;
 const SERIAL_BUFFER_SIZE = 4096;
 const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;
@@ -59,7 +59,8 @@ const telemetry = {
   lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
   lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
   lineErrorX100: null, lineTrim: null, trackBase: null, lineSequence: null, lineFramesDropped: 0,
-  trackP: null, trackI: null, trackD: null,
+  trackP: null, trackI: null, trackD: null, trackEffectiveKpX100: null,
+  trackKpX100: null, trackKiX1000: null, trackKdX100: null,
   trackPeakErrorX100: null, trackPeakState: "LOST", trackPeakMs: null,
   trackPeakP: null, trackPeakI: null, trackPeakD: null, trackPeakTrim: null,
   trackPeakPercent: [null, null, null, null], trackEndMs: null,
@@ -70,7 +71,7 @@ const knownParams = {};
 const sampleRecords = [];
 const sensorHistory = [];
 const SENSOR_HISTORY_LIMIT = 2000;
-const SENSOR_CHART_POINTS = 120;
+const SENSOR_CHART_POINTS = 800;
 let paramsLoaded = false;
 let serialPort = null;
 let lastGrantedSerialPort = null;
@@ -114,6 +115,9 @@ let receivedNonAsciiCount = 0;
 let recentRawBytes = [];
 let recentReceivedLines = [];
 let latestConnectionDiagnostic = "";
+let firmwareBuildTime = "";
+let pendingTrackStartEvent = false;
+let trackSessionActive = false;
 
 let decoder = new TextDecoder("utf-8");
 const encoder = new TextEncoder();
@@ -209,6 +213,8 @@ function snapshot() {
     mode: state.mode, motion: state.motion,
     left_cps: telemetry.leftCps, right_cps: telemetry.rightCps,
     target_left: telemetry.targetLeft, target_right: telemetry.targetRight,
+    left_tracking_error_cps: Number.isFinite(telemetry.leftCps) && Number.isFinite(telemetry.targetLeft) ? telemetry.leftCps - telemetry.targetLeft : null,
+    right_tracking_error_cps: Number.isFinite(telemetry.rightCps) && Number.isFinite(telemetry.targetRight) ? telemetry.rightCps - telemetry.targetRight : null,
     pwm_left: telemetry.pwmLeft, pwm_right: telemetry.pwmRight,
     straight_error: telemetry.error, straight_trim: telemetry.trim,
     voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance, route: telemetry.route,
@@ -220,6 +226,7 @@ function snapshot() {
     line_sequence: telemetry.lineSequence, line_frames_dropped: telemetry.lineFramesDropped,
     line_calibrated: state.lineCalibrated, track_base_cps: telemetry.trackBase,
     track_p_cps: telemetry.trackP, track_i_cps: telemetry.trackI, track_d_cps: telemetry.trackD,
+    effective_kp: Number.isFinite(telemetry.trackEffectiveKpX100) ? telemetry.trackEffectiveKpX100 / 100 : null,
     track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs,
     track_peak_error_x100: telemetry.trackPeakErrorX100,
     track_peak_p_cps: telemetry.trackPeakP, track_peak_i_cps: telemetry.trackPeakI,
@@ -311,9 +318,11 @@ function sensorRange(key) {
   let maximum = 0;
   for (const record of sensorHistory) {
     const value = record[key];
+    if (!Number.isFinite(value)) continue;
     if (value < minimum) minimum = value;
     if (value > maximum) maximum = value;
   }
+  if (minimum > maximum) return null;
   return { minimum, maximum, span: maximum - minimum };
 }
 
@@ -373,7 +382,8 @@ function drawSensorChart() {
     context.fillText(String(tick), margin.left - 6, y);
   }
   const records = sensorHistory.slice(-SENSOR_CHART_POINTS);
-  if (records.length === 0) {
+  const samples = records.filter((record) => record.record_type === "SAMPLE");
+  if (samples.length === 0) {
     context.fillStyle = "#70869a";
     context.textAlign = "center";
     context.fillText("连接后自动记录四路原始值", margin.left + chartWidth / 2, margin.top + chartHeight / 2);
@@ -385,32 +395,51 @@ function drawSensorChart() {
     { key: "right_vertical", color: "#ffbd66" },
     { key: "right_horizontal", color: "#55e5a7" }
   ];
+  const firstTime = records[0].time_ms;
+  const lastTime = records.at(-1).time_ms;
+  const timeSpan = Math.max(1, lastTime - firstTime);
+  const xFor = (record) => margin.left + (record.time_ms - firstTime) * chartWidth / timeSpan;
   for (const item of series) {
     context.strokeStyle = item.color;
     context.lineWidth = 1.7;
     context.lineJoin = "round";
     context.beginPath();
-    records.forEach((record, index) => {
-      const x = margin.left + (records.length === 1 ? chartWidth : index * chartWidth / (records.length - 1));
+    samples.forEach((record, index) => {
+      const x = xFor(record);
       const y = margin.top + chartHeight - record[item.key] / 4095 * chartHeight;
       if (index === 0) context.moveTo(x, y);
       else context.lineTo(x, y);
     });
     context.stroke();
   }
-  const elapsed = Math.round((records.at(-1).time_ms - records[0].time_ms) / 1000);
+  for (const record of records.filter((item) => item.record_type === "EVENT")) {
+    const start = record.event === "START";
+    const x = xFor(record);
+    context.strokeStyle = start ? "#22c55e" : "#ef4444";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(x, margin.top);
+    context.lineTo(x, margin.top + chartHeight);
+    context.stroke();
+    context.fillStyle = context.strokeStyle;
+    context.textAlign = x > margin.left + chartWidth - 34 ? "right" : "left";
+    context.textBaseline = "top";
+    context.fillText(start ? "开始" : "结束", x + (context.textAlign === "left" ? 3 : -3), margin.top + 2);
+  }
+  const elapsed = Math.round((lastTime - firstTime) / 1000);
   context.fillStyle = "#70869a";
   context.textAlign = "left";
   context.textBaseline = "bottom";
-  context.fillText(`最近 ${records.length} 条 · ${elapsed}s`, margin.left, height - 3);
+  context.fillText(`最近 ${samples.length} 条 · ${elapsed}s`, margin.left, height - 3);
 }
 
 function updateSensorCaptureStatus() {
-  const count = sensorHistory.length;
+  const count = sensorHistory.filter((record) => record.record_type === "SAMPLE").length;
+  const eventCount = sensorHistory.length - count;
   const elapsed = count ? Math.round((sensorHistory.at(-1).time_ms - sensorSessionStartedAt) / 1000) : 0;
-  ui.sensorCaptureStatus.textContent = `第 ${sensorSessionNumber} 组 · 自动记录 ${count} 条 · ${elapsed}s · 当前：${sensorScenarioLabel()}`;
-  ui.copySensorSessionButton.disabled = count === 0;
-  ui.exportSensorSessionButton.disabled = count === 0;
+  ui.sensorCaptureStatus.textContent = `第 ${sensorSessionNumber} 组 · 自动记录 ${count} 条${eventCount ? ` · 事件 ${eventCount}` : ""} · ${elapsed}s · 当前：${sensorScenarioLabel()}`;
+  ui.copySensorSessionButton.disabled = sensorHistory.length === 0;
+  ui.exportSensorSessionButton.disabled = sensorHistory.length === 0;
   updateSensorMeters();
   drawSensorChart();
 }
@@ -419,20 +448,54 @@ function captureSensorHistory() {
   const raw = [telemetry.lineLeftTrans, telemetry.lineLeftLong, telemetry.lineRightTrans, telemetry.lineRightLong];
   if (!raw.every(Number.isFinite)) return;
   const now = Date.now();
-  sensorHistory.push({
+  const common = {
     local_time: localTimestamp(new Date(now)), time: new Date(now).toISOString(), time_ms: now,
     session_number: sensorSessionNumber,
     elapsed_ms: now - sensorSessionStartedAt,
     scene: ui.sensorScenario.value, scene_label: sensorScenarioLabel(), note: ui.sensorSessionNote.value.trim(),
-    sequence: telemetry.lineSequence,
+    sequence: telemetry.lineSequence
+  };
+  if (pendingTrackStartEvent && state.trackRunning) {
+    sensorHistory.push({
+      ...common, record_type: "EVENT", event: "START", event_label: "巡线开始",
+      firmware_build: firmwareBuildTime, track_running: 1, track_state: state.trackState,
+      track_speed_gear: state.trackGear,
+      configured_kp: Number.isFinite(telemetry.trackKpX100) ? telemetry.trackKpX100 / 100 : null,
+      configured_ki: Number.isFinite(telemetry.trackKiX1000) ? telemetry.trackKiX1000 / 1000 : null,
+      configured_kd: Number.isFinite(telemetry.trackKdX100) ? telemetry.trackKdX100 / 100 : null,
+      track_base_cps: telemetry.trackBase, track_end: "NONE", track_end_ms: 0
+    });
+    pendingTrackStartEvent = false;
+    trackSessionActive = true;
+  }
+  const leftTrackingError = Number.isFinite(telemetry.leftCps) && Number.isFinite(telemetry.targetLeft) ?
+    telemetry.leftCps - telemetry.targetLeft : null;
+  const rightTrackingError = Number.isFinite(telemetry.rightCps) && Number.isFinite(telemetry.targetRight) ?
+    telemetry.rightCps - telemetry.targetRight : null;
+  sensorHistory.push({
+    ...common, record_type: "SAMPLE", event: "", event_label: "",
     left_horizontal: raw[0], left_vertical: raw[1], right_horizontal: raw[2], right_vertical: raw[3],
     left_horizontal_pct: telemetry.lineLeftTransPct, left_vertical_pct: telemetry.lineLeftLongPct,
     right_horizontal_pct: telemetry.lineRightTransPct, right_vertical_pct: telemetry.lineRightLongPct,
     line_error_x100: telemetry.lineErrorX100, track_state: state.trackState, track_running: state.trackRunning ? 1 : 0,
     track_base_cps: telemetry.trackBase, track_p_cps: telemetry.trackP, track_i_cps: telemetry.trackI,
     track_d_cps: telemetry.trackD, line_trim_cps: telemetry.lineTrim,
+    effective_kp: Number.isFinite(telemetry.trackEffectiveKpX100) ? telemetry.trackEffectiveKpX100 / 100 : null,
+    target_left_cps: telemetry.targetLeft, target_right_cps: telemetry.targetRight,
+    actual_left_cps: telemetry.leftCps, actual_right_cps: telemetry.rightCps,
+    left_tracking_error_cps: leftTrackingError, right_tracking_error_cps: rightTrackingError,
+    line_frames_dropped: telemetry.lineFramesDropped,
+    avoidance: state.avoidance ? "ON" : "OFF", distance_cm: telemetry.distance, obstacle_route: telemetry.route,
     track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs
   });
+  if (trackSessionActive && !state.trackRunning) {
+    sensorHistory.push({
+      ...common, record_type: "EVENT", event: "END", event_label: "巡线结束",
+      track_running: 0, track_state: state.trackState,
+      track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs
+    });
+    trackSessionActive = false;
+  }
   if (sensorHistory.length > SENSOR_HISTORY_LIMIT) sensorHistory.splice(0, sensorHistory.length - SENSOR_HISTORY_LIMIT);
   updateSensorCaptureStatus();
 }
@@ -441,18 +504,27 @@ function startNewSensorSession() {
   sensorHistory.length = 0;
   sensorSessionStartedAt = Date.now();
   sensorSessionNumber += 1;
+  pendingTrackStartEvent = false;
+  trackSessionActive = state.trackRunning;
   updateSensorCaptureStatus();
   setMessage(`已开始第 ${sensorSessionNumber} 组：${sensorScenarioLabel()}`);
 }
 
 function sensorSessionTable(separator) {
   const columns = [
-    ["本地时间", "local_time"], ["UTC时间", "time"], ["组号", "session_number"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"], ["序号", "sequence"],
+    ["本地时间", "local_time"], ["UTC时间", "time"], ["组号", "session_number"], ["经过毫秒", "elapsed_ms"], ["场景", "scene_label"], ["备注", "note"],
+    ["记录类型", "record_type"], ["事件", "event_label"], ["序号", "sequence"], ["累计丢帧", "line_frames_dropped"],
+    ["固件编译时间", "firmware_build"], ["速度档", "track_speed_gear"],
+    ["设置Kp", "configured_kp"], ["设置Ki", "configured_ki"], ["设置Kd", "configured_kd"],
     ["左横_PA4", "left_horizontal"], ["左竖_PA5", "left_vertical"], ["右竖_PB0", "right_vertical"], ["右横_PB1", "right_horizontal"],
     ["左横相对值", "left_horizontal_pct"], ["左竖相对值", "left_vertical_pct"], ["右竖相对值", "right_vertical_pct"], ["右横相对值", "right_horizontal_pct"],
     ["误差x100", "line_error_x100"], ["直线状态", "track_state"], ["是否运行", "track_running"],
     ["基础速度CPS", "track_base_cps"], ["P项CPS", "track_p_cps"], ["I项CPS", "track_i_cps"],
-    ["D项CPS", "track_d_cps"], ["实际修正CPS", "line_trim_cps"],
+    ["D项CPS", "track_d_cps"], ["实际修正CPS", "line_trim_cps"], ["有效Kp", "effective_kp"],
+    ["左目标CPS", "target_left_cps"], ["右目标CPS", "target_right_cps"],
+    ["左实际CPS", "actual_left_cps"], ["右实际CPS", "actual_right_cps"],
+    ["左轮误差_实际减目标", "left_tracking_error_cps"], ["右轮误差_实际减目标", "right_tracking_error_cps"],
+    ["避障", "avoidance"], ["超声波cm", "distance_cm"], ["避障阶段", "obstacle_route"],
     ["结束原因", "track_end"], ["结束毫秒", "track_end_ms"]
   ];
   const encode = separator === "," ? csvCell : (value) => String(value ?? "").replace(/[\t\r\n]+/g, " ");
@@ -746,6 +818,8 @@ function setMode(mode) {
     setTrackRunning(false);
     setAvoidance(false);
     setLineCalibrating(false);
+    pendingTrackStartEvent = false;
+    trackSessionActive = false;
     resumePollingAfterParams = false;
   }
   updateAvailability();
@@ -1161,7 +1235,10 @@ function showParameterValue(input, value) {
 
 function processLine(line) {
   const firmwareBuild = line.match(/(?:^FW BUILD=|\sFW=)(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})/i);
-  if (firmwareBuild) ui.firmwareBuildBadge.textContent = `固件 ${shortBuildTime(firmwareBuild[1])}`;
+  if (firmwareBuild) {
+    firmwareBuildTime = firmwareBuild[1];
+    ui.firmwareBuildBadge.textContent = `固件 ${shortBuildTime(firmwareBuild[1])}`;
+  }
   if (/^STANDBY - send MODE/i.test(line)) lastLineSequence = null;
   const modeMatch = line.match(/(?:MODE=|OK MODE |OK STOPPED MODE )(STANDBY|REMOTE|SENSOR)\b/i);
   if (modeMatch) {
@@ -1255,11 +1332,17 @@ function processLine(line) {
     const raw = numberList(fields.RAW, 4);
     const normalized = numberList(fields.N, 4);
     const pid = numberList(fields.PID, 4);
+    const wheelCps = numberList(fields.W, 4);
+    const tuning = fields.TUNE === undefined ? null : numberList(fields.TUNE, 3);
     const peakPid = numberList(fields.PKPID, 4);
     const peakNormalized = numberList(fields.PKN, 4);
     const endNormalized = numberList(fields.ENDN, 4);
     const sequence = numberField(fields, "SEQ");
-    if (!raw || !normalized || !pid || !peakPid || !peakNormalized || !endNormalized || !Number.isFinite(sequence)) {
+    const effectiveKpX100 = numberField(fields, "KPE");
+    const trackGearNumber = fields.GEAR === undefined ? null : numberField(fields, "GEAR");
+    const metadataInvalid = fields.TUNE !== undefined && (!tuning || !Number.isInteger(trackGearNumber) || trackGearNumber < 0 || trackGearNumber > 2);
+    if (!raw || !normalized || !pid || !wheelCps || !peakPid || !peakNormalized || !endNormalized ||
+        !Number.isFinite(sequence) || !Number.isFinite(effectiveKpX100) || metadataInvalid) {
       const error = "数据帧字段不完整，已丢弃并等待下一帧。";
       showConnectionDiagnostic(error);
       if (ui.firmwareWarning.textContent !== error) {
@@ -1293,6 +1376,13 @@ function processLine(line) {
     if (state.trackEnd === "NONE") lastFailureSignature = "";
     telemetry.trackBase = numberField(fields, "BASE");
     [telemetry.trackP, telemetry.trackI, telemetry.trackD, telemetry.lineTrim] = pid;
+    [telemetry.targetLeft, telemetry.targetRight, telemetry.leftCps, telemetry.rightCps] = wheelCps;
+    telemetry.trackEffectiveKpX100 = effectiveKpX100;
+    if (tuning) {
+      [telemetry.trackKpX100, telemetry.trackKiX1000, telemetry.trackKdX100] = tuning;
+      setTrackGear(["LOW", "MEDIUM", "HIGH"][trackGearNumber]);
+      pendingTrackStartEvent = true;
+    }
     [telemetry.lineLeftTrans, telemetry.lineLeftLong,
       telemetry.lineRightTrans, telemetry.lineRightLong] = raw;
     [telemetry.lineLeftTransPct, telemetry.lineLeftLongPct,
@@ -1414,12 +1504,16 @@ function processLine(line) {
     setMotion("stop");
     centerJoystick(false);
   }
-  if (/^OK TRACK STARTED$/i.test(line)) setTrackRunning(true);
+  if (/^OK TRACK STARTED$/i.test(line)) {
+    pendingTrackStartEvent = true;
+    setTrackRunning(true);
+  }
   if (/^OK TRACK STOPPED$/i.test(line)) {
     settleStopAck(true);
     setTrackRunning(false);
   }
   if (/^ERR TRACK NO LINE$/i.test(line)) {
+    pendingTrackStartEvent = false;
     setTrackRunning(false);
     setTrackState("LOST");
     setMessage("未检测到赛道，循迹没有启动", true);
@@ -1625,7 +1719,7 @@ function exportCsv() {
   const mode = currentLogMode();
   const records = recordsForMode(mode);
   const remoteColumns = ["time", "elapsed_ms", "note", "motion", "remote_speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv"];
-  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
+  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "effective_kp", "target_left", "target_right", "left_cps", "right_cps", "left_tracking_error_cps", "right_tracking_error_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
   const columns = mode === "sensor" ? sensorColumns : remoteColumns;
   const rows = [columns.join(",")];
   for (const record of records) {
