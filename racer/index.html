@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MSPM0G3507 小车台架</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #10151c; color: #e8edf2; }
+    body { max-width: 980px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    .sub { color: #9dacbc; margin-bottom: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+    .card { background: #18212b; border: 1px solid #2c3a48; border-radius: 14px; padding: 16px; }
+    button, input { font: inherit; }
+    button { color: #edf5ff; background: #2763a6; border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; }
+    button:hover { background: #3478c7; }
+    button:disabled { opacity: .45; cursor: default; }
+    .stop { background: #b73333; font-weight: 700; }
+    .stop:hover { background: #d04444; }
+    .row { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; margin: 10px 0; }
+    .pad { display: grid; grid-template-columns: repeat(3, 76px); gap: 8px; justify-content: center; }
+    .pad .forward { grid-column: 2; }
+    .pad .left { grid-column: 1; }
+    .pad .halt { grid-column: 2; }
+    .pad .right { grid-column: 3; }
+    .pad .reverse { grid-column: 2; }
+    label { color: #b9c5d0; }
+    input[type=range] { width: 210px; }
+    input[type=number] { width: 82px; background: #0f151c; color: #fff; border: 1px solid #425264; border-radius: 7px; padding: 7px; }
+    .status { padding: 8px 11px; border-radius: 999px; background: #3a2930; }
+    .status.online { background: #173f2d; color: #8ce0ad; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .metric { background: #10171f; border-radius: 9px; padding: 10px; }
+    .metric small { display: block; color: #8494a4; }
+    .metric strong { font-size: 18px; }
+    pre { height: 220px; overflow: auto; white-space: pre-wrap; background: #090d12; border-radius: 9px; padding: 10px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid #31404e; padding: 7px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    .hint { color: #95a5b5; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>MSPM0G3507 第一阶段台架</h1>
+  <div class="sub">HC-05 · 双电机正反转 · 编码器 · 档位/极限速度记录</div>
+
+  <div class="grid">
+    <section class="card">
+      <div class="row">
+        <button id="connect">连接串口</button>
+        <button id="disconnect" disabled>断开</button>
+        <span id="connection" class="status">未连接</span>
+      </div>
+      <p class="hint">先在 Windows 配对 HC-05，再选择它的 COM 口；参数固定为 9600 8N1。</p>
+      <div class="row">
+        <label for="pwm">手动 PWM：<b id="pwmValue">200</b></label>
+        <input id="pwm" type="range" min="0" max="900" value="200" step="10">
+      </div>
+      <div class="pad">
+        <button class="forward" data-motion="forward">前进</button>
+        <button class="left" data-motion="left">左转</button>
+        <button class="halt stop" id="stop">停车</button>
+        <button class="right" data-motion="right">右转</button>
+        <button class="reverse" data-motion="reverse">后退</button>
+      </div>
+      <p class="hint">方向键按住才运动，松开即停车；首次测试请架空车轮。</p>
+    </section>
+
+    <section class="card">
+      <h2>闭环档位</h2>
+      <div class="row">
+        <button data-gear="1">1档 · 10</button>
+        <button data-gear="2">2档 · 15</button>
+        <button data-gear="3">3档 · 20</button>
+        <button data-gear="4">4档 · 24</button>
+      </div>
+      <div class="row">
+        <label>自定义 VEL ×100</label>
+        <input id="velLeft" type="number" value="2000" min="-3000" max="3000">
+        <input id="velRight" type="number" value="2000" min="-3000" max="3000">
+        <button id="sendVel">运行</button>
+      </div>
+      <div class="row">
+        <button id="clear">清故障/计数</button>
+        <button id="status">读取状态</button>
+      </div>
+      <p class="hint">档位单位是每 20 ms 的编码器 A 相双边沿数，不是 m/s。</p>
+    </section>
+
+    <section class="card">
+      <h2>实时遥测</h2>
+      <div class="metrics">
+        <div class="metric"><small>模式</small><strong id="mode">—</strong></div>
+        <div class="metric"><small>左边沿/20 ms</small><strong id="encL">—</strong></div>
+        <div class="metric"><small>右边沿/20 ms</small><strong id="encR">—</strong></div>
+        <div class="metric"><small>左 PWM</small><strong id="outL">—</strong></div>
+        <div class="metric"><small>右 PWM</small><strong id="outR">—</strong></div>
+        <div class="metric"><small>故障</small><strong id="fault">—</strong></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>定距测速</h2>
+      <div class="row">
+        <label>距离/m</label><input id="distance" type="number" value="1" min="0.1" step="0.1">
+        <button id="measureStart">开始</button>
+        <button id="measureStop" disabled>到终点</button>
+        <button id="exportCsv">导出 CSV</button>
+      </div>
+      <p id="measureState" class="hint">尚未开始。</p>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>序号</th><th>距离/m</th><th>时间/s</th><th>速度/m·s⁻¹</th><th>平均边沿 L/R</th><th>平均 PWM L/R</th></tr></thead>
+          <tbody id="measurements"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:14px">
+    <div class="row"><h2 style="margin:0">串口日志</h2><button id="clearLog">清空</button></div>
+    <pre id="log"></pre>
+  </section>
+
+  <script>
+    let port;
+    let reader;
+    let keepReading = false;
+    let writeChain = Promise.resolve();
+    let activeCommand = '';
+    let keepaliveTimer;
+    let lineBuffer = '';
+    let latestTelemetry = {};
+    let measurement = null;
+    const results = [];
+
+    const el = id => document.getElementById(id);
+    const log = text => {
+      el('log').textContent += `${new Date().toLocaleTimeString()} ${text}\n`;
+      el('log').scrollTop = el('log').scrollHeight;
+    };
+
+    function setConnected(connected) {
+      el('connect').disabled = connected;
+      el('disconnect').disabled = !connected;
+      el('connection').textContent = connected ? '已连接' : '未连接';
+      el('connection').classList.toggle('online', connected);
+    }
+
+    async function send(command, show = true) {
+      if (!port || !port.writable) {
+        if (show) log(`未发送（未连接）：${command}`);
+        return;
+      }
+      writeChain = writeChain.then(async () => {
+        const writer = port.writable.getWriter();
+        try { await writer.write(new TextEncoder().encode(`${command}\r\n`)); }
+        finally { writer.releaseLock(); }
+      }).catch(error => log(`发送失败：${error.message}`));
+      if (show) log(`> ${command}`);
+      return writeChain;
+    }
+
+    function setMotion(command) {
+      activeCommand = command;
+      send(command);
+    }
+
+    function stopMotion() {
+      activeCommand = '';
+      send('STOP');
+    }
+
+    function parseTelemetry(line) {
+      if (!(line.startsWith('T ') || line.startsWith('STATUS '))) return;
+      const values = {};
+      for (const item of line.split(/\s+/).slice(1)) {
+        const split = item.indexOf('=');
+        if (split > 0) values[item.slice(0, split)] = item.slice(split + 1);
+      }
+      latestTelemetry = values;
+      el('mode').textContent = values.mode ?? '—';
+      el('encL').textContent = values.encL ?? '—';
+      el('encR').textContent = values.encR ?? '—';
+      el('outL').textContent = values.pwmL ?? '—';
+      el('outR').textContent = values.pwmR ?? '—';
+      el('fault').textContent = values.fault === '1' ? '有' : '无';
+      if (measurement) {
+        measurement.samples.push({
+          encL: Number(values.encL || 0), encR: Number(values.encR || 0),
+          pwmL: Number(values.pwmL || 0), pwmR: Number(values.pwmR || 0)
+        });
+      }
+    }
+
+    function handleLine(line) {
+      if (!line) return;
+      log(`< ${line}`);
+      parseTelemetry(line);
+      if (line.includes('fault') && !line.includes('fault=0')) activeCommand = '';
+    }
+
+    async function readLoop() {
+      const decoder = new TextDecoder();
+      keepReading = true;
+      while (port?.readable && keepReading) {
+        reader = port.readable.getReader();
+        try {
+          while (keepReading) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            lineBuffer += decoder.decode(value, { stream: true });
+            const lines = lineBuffer.split(/\r?\n/);
+            lineBuffer = lines.pop();
+            lines.forEach(handleLine);
+          }
+        } catch (error) {
+          if (keepReading) log(`读取失败：${error.message}`);
+        } finally {
+          reader.releaseLock();
+          reader = null;
+        }
+      }
+    }
+
+    async function disconnect() {
+      activeCommand = '';
+      if (!port) return;
+      try { await send('STOP', false); } catch (_) {}
+      keepReading = false;
+      if (reader) await reader.cancel().catch(() => {});
+      await writeChain;
+      await port.close().catch(() => {});
+      port = undefined;
+      setConnected(false);
+      log('串口已断开');
+    }
+
+    el('connect').addEventListener('click', async () => {
+      if (!('serial' in navigator)) {
+        log('当前浏览器不支持 Web Serial，请使用桌面版 Chrome/Edge，并通过 HTTPS 打开。');
+        return;
+      }
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+        setConnected(true);
+        log('串口已连接：9600 8N1');
+        readLoop();
+        await send('TELEM 200');
+        await send('PING');
+      } catch (error) {
+        log(`连接失败：${error.message}`);
+        port = undefined;
+        setConnected(false);
+      }
+    });
+    el('disconnect').addEventListener('click', disconnect);
+    navigator.serial?.addEventListener('disconnect', () => disconnect());
+
+    el('pwm').addEventListener('input', event => el('pwmValue').textContent = event.target.value);
+    document.querySelectorAll('[data-motion]').forEach(button => {
+      const command = () => {
+        const p = Number(el('pwm').value);
+        return {
+          forward: `PWM ${p} ${p}`, reverse: `PWM ${-p} ${-p}`,
+          left: `PWM ${-p} ${p}`, right: `PWM ${p} ${-p}`
+        }[button.dataset.motion];
+      };
+      button.addEventListener('pointerdown', event => { event.preventDefault(); button.setPointerCapture(event.pointerId); setMotion(command()); });
+      button.addEventListener('pointerup', stopMotion);
+      button.addEventListener('pointercancel', stopMotion);
+      button.addEventListener('lostpointercapture', () => { if (activeCommand.startsWith('PWM')) stopMotion(); });
+    });
+    el('stop').addEventListener('click', stopMotion);
+    document.querySelectorAll('[data-gear]').forEach(button => button.addEventListener('click', () => setMotion(`GEAR ${button.dataset.gear}`)));
+    el('sendVel').addEventListener('click', () => {
+      const left = Math.max(-3000, Math.min(3000, Number(el('velLeft').value)));
+      const right = Math.max(-3000, Math.min(3000, Number(el('velRight').value)));
+      setMotion(`VEL ${left} ${right}`);
+    });
+    el('clear').addEventListener('click', () => { activeCommand = ''; send('CLEAR'); });
+    el('status').addEventListener('click', () => send('STATUS'));
+    el('clearLog').addEventListener('click', () => el('log').textContent = '');
+
+    keepaliveTimer = setInterval(() => { if (activeCommand) send(activeCommand, false); }, 300);
+
+    el('measureStart').addEventListener('click', async () => {
+      const distance = Number(el('distance').value);
+      if (!(distance > 0)) return;
+      await send('ZERO');
+      measurement = { distance, started: performance.now(), samples: [] };
+      el('measureStart').disabled = true;
+      el('measureStop').disabled = false;
+      el('measureState').textContent = `测量中：${distance.toFixed(2)} m`;
+    });
+
+    const mean = (samples, key) => samples.length ? samples.reduce((sum, item) => sum + item[key], 0) / samples.length : 0;
+    el('measureStop').addEventListener('click', () => {
+      if (!measurement) return;
+      const elapsed = (performance.now() - measurement.started) / 1000;
+      const result = {
+        index: results.length + 1, distance: measurement.distance, elapsed,
+        speed: measurement.distance / elapsed,
+        encL: mean(measurement.samples, 'encL'), encR: mean(measurement.samples, 'encR'),
+        pwmL: mean(measurement.samples, 'pwmL'), pwmR: mean(measurement.samples, 'pwmR'),
+        totalL: Number(latestTelemetry.totalL || 0), totalR: Number(latestTelemetry.totalR || 0)
+      };
+      results.push(result);
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${result.index}</td><td>${result.distance.toFixed(2)}</td><td>${result.elapsed.toFixed(3)}</td><td>${result.speed.toFixed(3)}</td><td>${result.encL.toFixed(1)} / ${result.encR.toFixed(1)}</td><td>${result.pwmL.toFixed(0)} / ${result.pwmR.toFixed(0)}</td>`;
+      el('measurements').appendChild(row);
+      el('measureState').textContent = `结果：${result.speed.toFixed(3)} m/s；累计边沿 L/R = ${result.totalL}/${result.totalR}`;
+      measurement = null;
+      el('measureStart').disabled = false;
+      el('measureStop').disabled = true;
+    });
+
+    el('exportCsv').addEventListener('click', () => {
+      if (!results.length) return;
+      const header = 'index,distance_m,time_s,speed_mps,avg_enc_l,avg_enc_r,avg_pwm_l,avg_pwm_r,total_l,total_r';
+      const rows = results.map(r => [r.index, r.distance, r.elapsed, r.speed, r.encL, r.encR, r.pwmL, r.pwmR, r.totalL, r.totalR].join(','));
+      const blob = new Blob([[header, ...rows].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `speed-test-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+
+    window.addEventListener('blur', () => { if (activeCommand.startsWith('PWM')) stopMotion(); });
+    window.addEventListener('beforeunload', () => clearInterval(keepaliveTimer));
+  </script>
+</body>
+</html>
+
