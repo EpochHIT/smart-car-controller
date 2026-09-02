@@ -72,7 +72,7 @@
         </div>
         <div class="track-state-hero" style="margin-top:7px">
           <div><small>左轮目标</small><strong id="trackTargetLeft">--</strong></div>
-          <div><small>PID 修正 ×100</small><strong id="trackCorrection">--</strong></div>
+          <div><small>PD 修正 ×100</small><strong id="trackCorrection">--</strong></div>
           <div><small>右轮目标</small><strong id="trackTargetRight">--</strong></div>
         </div>
         <div class="seven-gears" id="trackGears" aria-label="循迹目标档位">
@@ -84,8 +84,8 @@
 
       <section class="card line-card">
         <div class="section-title"><h2>四路原始值</h2><span>ADC 0–4095</span></div>
-        <div class="calibration-strip"><span class="ready">横线圈 PID，竖线圈确认十字</span><strong>10 ms 采样</strong></div>
-        <p class="orientation-note"><strong>接线顺序：</strong>左横 PA26、左竖 PA25、右竖 PB19、右横 PB18。十字只记录事件，不更换 PID，也不执行环岛策略。</p>
+        <div class="calibration-strip"><span class="ready">横线圈 PD，竖线圈确认十字</span><strong>10 ms 采样</strong></div>
+        <p class="orientation-note"><strong>接线顺序：</strong>左横 PA26、左竖 PA25、右竖 PB19、右横 PB18。十字只记录事件，不更换 PD，也不执行环岛策略。</p>
         <div class="sensor-meter-grid">
           <article class="sensor-meter cyan"><small>左横 · PA26</small><strong id="ltValue">--</strong><div class="meter-track"><span id="ltBar"></span></div><em id="ltMeta">等待数据</em></article>
           <article class="sensor-meter violet"><small>左竖 · PA25</small><strong id="llValue">--</strong><div class="meter-track"><span id="llBar"></span></div><em id="llMeta">等待数据</em></article>
