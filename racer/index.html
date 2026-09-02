@@ -2,334 +2,154 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>电机最高速度测试</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
+  <title>MSPM0 电磁赛车控制台</title>
+  <link rel="stylesheet" href="styles.css?v=20260902-mspm0">
   <style>
-    :root { color-scheme: dark; font-family: system-ui, "Microsoft YaHei", sans-serif; background: #0b1117; color: #f3f7fb; }
-    * { box-sizing: border-box; }
-    body { max-width: 900px; margin: 0 auto; padding: 22px; }
-    h1 { margin: 0; font-size: clamp(25px, 5vw, 38px); }
-    .subtitle { margin: 7px 0 20px; color: #91a2b4; }
-    .card { margin-bottom: 14px; padding: 18px; border: 1px solid #263546; border-radius: 16px; background: #131d27; }
-    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-    button, input { font: inherit; }
-    button { min-height: 46px; padding: 10px 17px; border: 0; border-radius: 10px; color: white; background: #2878d0; cursor: pointer; font-weight: 700; }
-    button:hover { filter: brightness(1.12); }
-    button:disabled { cursor: default; opacity: .42; }
-    .secondary { background: #344455; }
-    .full { background: #e58a16; }
-    .stop { flex: 1; min-width: 180px; background: #d13e3e; font-size: 19px; }
-    .status { padding: 8px 12px; border-radius: 999px; color: #ffbdc2; background: #42262b; }
-    .status.online { color: #83e7ae; background: #183d2b; }
-    .hint { color: #91a2b4; font-size: 13px; line-height: 1.6; }
-    .warning { color: #ffd27b; }
-    .speed-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-    .speed-card { padding: 18px; text-align: center; border-radius: 14px; background: #0d151d; }
-    .side { color: #9db0c2; font-size: 16px; }
-    .rpm { display: block; margin: 3px 0; color: #66d6ff; font-size: clamp(42px, 10vw, 72px); line-height: 1; }
-    .unit { color: #7f91a3; }
-    .peak { margin-top: 12px; color: #ffc466; font-size: 17px; }
-    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 14px; }
-    .metric { padding: 11px; border-radius: 10px; background: #0d151d; }
-    .metric small { display: block; color: #7f91a3; }
-    .metric strong { display: block; margin-top: 3px; font-size: 20px; }
-    .control-label { display: flex; justify-content: space-between; gap: 12px; }
-    input[type="range"] { width: 100%; margin: 14px 0; accent-color: #31a9f4; }
-    input[type="number"] { width: 100px; padding: 8px; border: 1px solid #40536a; border-radius: 8px; background: #0c141c; color: white; }
-    details { color: #aebdca; }
-    summary { cursor: pointer; }
-    pre { max-height: 160px; overflow: auto; padding: 10px; border-radius: 8px; background: #080c11; color: #9db0c2; white-space: pre-wrap; font-size: 12px; }
-    @media (max-width: 650px) {
-      body { padding: 14px; }
-      .speed-grid { grid-template-columns: 1fr; }
-      .metrics { grid-template-columns: repeat(2, 1fr); }
-      button { flex: 1; }
-    }
+    .tabs { grid-template-columns: repeat(2, 1fr); }
+    .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
+    .battery-warning strong { color: #ffd5db; }
+    .battery-good { color: var(--green) !important; }
+    .battery-low { color: var(--red) !important; }
+    .speed-hero { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+    .speed-hero>div { padding:18px 8px; border:1px solid var(--line); border-radius:13px; background:rgba(3,11,20,.42); text-align:center; }
+    .speed-hero small { display:block; color:var(--muted); }
+    .speed-hero strong { display:block; margin:4px 0; color:var(--cyan); font:900 clamp(2rem,10vw,3.4rem)/1 ui-monospace,Consolas,monospace; }
+    .speed-hero span { color:var(--muted); font-size:.7rem; }
+    .seven-gears { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-top:10px; }
+    .seven-gears button { min-width:0; min-height:36px; padding:5px 2px; border:1px solid var(--line); border-radius:8px; background:rgba(3,10,18,.55); color:var(--muted); font-weight:850; }
+    .seven-gears button.selected { border-color:rgba(67,213,255,.45); background:rgba(67,213,255,.13); color:var(--cyan); }
+    .battery-detail { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .battery-detail>div { padding:12px; border:1px solid var(--line); border-radius:11px; background:rgba(3,11,20,.42); text-align:center; }
+    .battery-detail small { display:block; color:var(--muted); }
+    .battery-detail strong { display:block; margin-top:4px; color:var(--cyan); font:900 1.35rem ui-monospace,Consolas,monospace; }
+    .file-input { display:none; }
+    .capture-actions { grid-template-columns:repeat(4,1fr); }
+    .compact-input { width:100%; min-height:40px; margin-top:5px; padding:8px 9px; border:1px solid var(--line); border-radius:9px; background:#071321; color:var(--text); }
+    @media(max-width:520px){ .seven-gears{grid-template-columns:repeat(4,1fr)} .capture-actions{grid-template-columns:repeat(2,1fr)} }
   </style>
 </head>
 <body>
-  <h1>电机最高速度测试</h1>
-  <p class="subtitle">JDY-31 SPP · 57600 8N1 · 左右编码器实时反馈</p>
-
-  <section class="card">
-    <div class="row">
-      <button id="connect">连接 JDY-31</button>
-      <button id="disconnect" class="secondary" disabled>断开</button>
-      <span id="connection" class="status">未连接</span>
-    </div>
-    <p class="hint">选择 Windows 中 JDY-31 配对后生成的“传出”COM 口。</p>
-  </section>
-
-  <section class="card">
-    <div class="speed-grid">
-      <div class="speed-card">
-        <div class="side">左轮转速</div>
-        <strong id="rpmL" class="rpm">—</strong>
-        <span class="unit">RPM</span>
-        <div class="peak">最高：<b id="maxRpmL">0</b> RPM</div>
+  <main class="app-shell">
+    <header class="app-hero">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48"><path class="track-line" d="M24 3v11m0 20v11"/><path class="car-shell" d="M13 17.5c0-2.5 2-4.5 4.5-4.5h13c2.5 0 4.5 2 4.5 4.5v15c0 2.5-2 4.5-4.5 4.5h-13A4.5 4.5 0 0 1 13 32.5z"/><path class="car-window" d="m17 17 14 .1 2 8H15z"/><circle cx="17" cy="35" r="3"/><circle cx="31" cy="35" r="3"/></svg>
+        </span>
+        <div class="brand-copy"><div class="eyebrow-row"><span class="eyebrow">SMART CAR LAB</span><span class="platform-badge">MSPM0</span></div><h1>电磁赛车控制台</h1><p>传感采集 · 轮速闭环 · CSV 回放</p></div>
       </div>
-      <div class="speed-card">
-        <div class="side">右轮转速</div>
-        <strong id="rpmR" class="rpm">—</strong>
-        <span class="unit">RPM</span>
-        <div class="peak">最高：<b id="maxRpmR">0</b> RPM</div>
+      <div class="connection-state" id="connectionState"><span class="state-dot"></span><span id="connectionText">未连接</span></div>
+    </header>
+
+    <section class="card quick-panel">
+      <div class="connect-row">
+        <div class="connection-label"><span>蓝牙串口</span><strong>JDY-31-SPP</strong><small>57600 · 8N1 · 遥测 50 ms</small></div>
+        <button class="button primary" id="connectButton" type="button">连接</button>
+        <button class="button ghost" id="disconnectButton" type="button" disabled>断开</button>
+        <strong class="device-name" id="deviceName">MSPM0G3507 天猛星</strong>
+        <span class="battery-pill">电压 <strong id="voltageValue">--</strong></span>
       </div>
-    </div>
-    <div class="metrics">
-      <div class="metric"><small>左编码器/20 ms</small><strong id="encL">—</strong></div>
-      <div class="metric"><small>右编码器/20 ms</small><strong id="encR">—</strong></div>
-      <div class="metric"><small>左累计边沿</small><strong id="totalL">—</strong></div>
-      <div class="metric"><small>右累计边沿</small><strong id="totalR">—</strong></div>
-      <div class="metric"><small>左 PWM</small><strong id="outL">—</strong></div>
-      <div class="metric"><small>右 PWM</small><strong id="outR">—</strong></div>
-      <div class="metric"><small>运行状态</small><strong id="runState">停止</strong></div>
-      <div class="metric"><small>编码器故障</small><strong id="fault">—</strong></div>
-    </div>
-  </section>
+      <button class="button stop-button full requires-connection" id="globalStopButton" type="button" disabled>■ 全局停车</button>
+      <p class="message" id="message" aria-live="polite">连接后自动记录四路 ADC；也可以离线读取 CSV。</p>
+    </section>
 
-  <section class="card">
-    <div class="control-label">
-      <label for="power">测试功率</label>
-      <strong><span id="powerValue">30</span>%</strong>
-    </div>
-    <input id="power" type="range" min="0" max="100" value="30" step="1">
-    <div class="row">
-      <button id="start">▶ 开始测试</button>
-      <button id="full" class="full">⚡ 100% 全速</button>
-      <button id="stop" class="stop">■ 立即停车</button>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button id="reset" class="secondary">清零并重新测</button>
-    </div>
-    <p class="hint warning">第一次测试必须架空车轮，并保证可以立即断开电机电源。</p>
-  </section>
+    <section class="card battery-warning" id="batteryWarning" hidden>⚠ 电池电压 <strong id="batteryWarningValue">--</strong> V，已到 10.5 V 或更低，请停车检查电池。</section>
 
-  <section class="card">
-    <details>
-      <summary>转速校准（RPM 不对时再改）</summary>
-      <div class="row" style="margin-top:12px">
-        <label for="edgesPerRev">车轮每转一圈的 A 相双边沿数</label>
-        <input id="edgesPerRev" type="number" min="1" step="1" value="40">
-      </div>
-      <p class="hint">默认 40 = 20 槽编码盘 × 上下沿。转动车轮一整圈，查看累计边沿增量，就能填入准确值。</p>
-    </details>
-  </section>
+    <nav class="tabs" aria-label="功能导航">
+      <button class="tab-button active" data-tab="sensor" type="button">巡线</button>
+      <button class="tab-button" data-tab="motor" type="button">电机与轮速</button>
+    </nav>
 
-  <section class="card">
-    <details>
-      <summary>诊断信息</summary>
-      <pre id="log"></pre>
-    </details>
-  </section>
+    <section class="tab-panel active" data-panel="sensor">
+      <section class="card track-control-card">
+        <div class="section-title"><h2>巡线控制</h2><span id="trackModeValue">STOP</span></div>
+        <div class="track-state-hero">
+          <div><small>线路状态</small><strong id="trackStateValue">待读取</strong></div>
+          <div><small>十字事件</small><strong id="crossValue">否</strong></div>
+          <div><small>横向误差</small><strong id="lineErrorValue">--</strong></div>
+        </div>
+        <div class="track-state-hero" style="margin-top:7px">
+          <div><small>左轮目标</small><strong id="trackTargetLeft">--</strong></div>
+          <div><small>PID 修正 ×100</small><strong id="trackCorrection">--</strong></div>
+          <div><small>右轮目标</small><strong id="trackTargetRight">--</strong></div>
+        </div>
+        <div class="seven-gears" id="trackGears" aria-label="循迹目标档位">
+          <button class="selected" data-speed="4000">40</button><button data-speed="4300">43</button><button data-speed="4600">46</button><button data-speed="4900">49</button><button data-speed="5200">52</button><button data-speed="5500">55</button><button data-speed="5800">58</button>
+        </div>
+        <p class="track-speed-hint">单位：编码器 A 相双边沿/20 ms。从 40 开始调，58 为当前共同顶档附近。</p>
+        <div class="button-grid two-buttons track-run-buttons"><button class="button primary requires-connection" id="trackStartButton" disabled>▶ 开始循迹</button><button class="button stop-button requires-connection" id="trackStopButton" disabled>■ 结束循迹</button></div>
+      </section>
 
-  <script>
-    const BAUD_RATE = 57600;
-    const CONTROL_PERIOD_MS = 20;
-    const PWM_MAX = 900;
-    const SMOOTH_SAMPLES = 5;
-    let port, reader;
-    let keepReading = false;
-    let writeChain = Promise.resolve();
-    let activeCommand = "";
-    let lineBuffer = "";
-    let maxRpmL = 0;
-    let maxRpmR = 0;
-    const leftHistory = [];
-    const rightHistory = [];
-    const el = id => document.getElementById(id);
+      <section class="card line-card">
+        <div class="section-title"><h2>四路原始值</h2><span>ADC 0–4095</span></div>
+        <div class="calibration-strip"><span class="ready">横线圈 PID，竖线圈确认十字</span><strong>10 ms 采样</strong></div>
+        <p class="orientation-note"><strong>接线顺序：</strong>左横 PA26、左竖 PA25、右竖 PB19、右横 PB18。十字只记录事件，不更换 PID，也不执行环岛策略。</p>
+        <div class="sensor-meter-grid">
+          <article class="sensor-meter cyan"><small>左横 · PA26</small><strong id="ltValue">--</strong><div class="meter-track"><span id="ltBar"></span></div><em id="ltMeta">等待数据</em></article>
+          <article class="sensor-meter violet"><small>左竖 · PA25</small><strong id="llValue">--</strong><div class="meter-track"><span id="llBar"></span></div><em id="llMeta">等待数据</em></article>
+          <article class="sensor-meter orange"><small>右竖 · PB19</small><strong id="rlValue">--</strong><div class="meter-track"><span id="rlBar"></span></div><em id="rlMeta">等待数据</em></article>
+          <article class="sensor-meter green"><small>右横 · PB18</small><strong id="rtValue">--</strong><div class="meter-track"><span id="rtBar"></span></div><em id="rtMeta">等待数据</em></article>
+        </div>
+      </section>
 
-    function log(text) {
-      const lines = (el("log").textContent + new Date().toLocaleTimeString() + " " + text + "\n").split("\n");
-      el("log").textContent = lines.slice(-31).join("\n");
-      el("log").scrollTop = el("log").scrollHeight;
-    }
+      <details class="card fold-card waveform-card" open>
+        <summary>四路波形与 CSV 读取/导出</summary>
+        <p class="group-hint waveform-hint">连接后自动记录，图中显示最近 800 条，本组最多保留 2000 条。读取本页导出的 CSV 后可离线回放；也兼容旧页面导出的四路传感器列。</p>
+        <div class="capture-label-row">
+          <label>当前场景<select id="sensorScenario"><option value="straight">直线</option><option value="left">左弯/左偏</option><option value="right">右弯/右偏</option><option value="cross">十字/交汇</option><option value="circle">白色圆环</option><option value="custom">自定义</option></select></label>
+          <label>补充说明<input id="sensorNote" type="text" placeholder="例如：40 档，刚进入白色圆环"></label>
+        </div>
+        <canvas id="sensorChart" width="640" height="260" aria-label="四路电磁 ADC 波形"></canvas>
+        <div class="chart-legend"><span class="cyan">左横</span><span class="violet">左竖</span><span class="orange">右竖</span><span class="green">右横</span></div>
+        <div class="capture-actions">
+          <button class="button ghost" id="newSessionButton">开始下一组</button>
+          <button class="button ghost" id="readCsvButton">读取 CSV</button>
+          <button class="button ghost" id="copyCsvButton" disabled>复制本组</button>
+          <button class="button primary" id="exportCsvButton" disabled>导出 CSV</button>
+        </div>
+        <input class="file-input" id="csvFileInput" type="file" accept=".csv,text/csv">
+        <p class="capture-status" id="captureStatus">第 1 组 · 0 条</p>
+      </details>
 
-    function setConnected(connected) {
-      el("connect").disabled = connected;
-      el("disconnect").disabled = !connected;
-      el("start").disabled = !connected;
-      el("full").disabled = !connected;
-      el("reset").disabled = !connected;
-      el("connection").textContent = connected ? "已连接" : "未连接";
-      el("connection").classList.toggle("online", connected);
-    }
+      <details class="card fold-card">
+        <summary>电池电压换算</summary>
+        <div class="battery-detail" style="margin-top:12px"><div><small>PA27 ADC 原始值</small><strong id="batteryRawValue">--</strong></div><div><small>计算电压</small><strong id="batteryDetailVoltage">-- V</strong></div></div>
+        <label class="group-hint" style="display:block;margin-top:12px">分压倍率<input class="compact-input" id="dividerRatio" type="number" min="1" step="0.01" value="5.00"></label>
+        <p class="group-hint">电压 = ADC ÷ 4095 × 3.3 × 分压倍率；提醒判断完全在网页端执行。</p>
+      </details>
+    </section>
 
-    async function send(command, show = true) {
-      if (!port?.writable) {
-        if (show) log("未发送（未连接）：" + command);
-        return;
-      }
-      writeChain = writeChain.then(async () => {
-        const writer = port.writable.getWriter();
-        try {
-          await writer.write(new TextEncoder().encode(command + "\r\n"));
-        } finally {
-          writer.releaseLock();
-        }
-      }).catch(error => log("发送失败：" + error.message));
-      if (show) log("> " + command);
-      return writeChain;
-    }
+    <section class="tab-panel" data-panel="motor" hidden>
+      <section class="card">
+        <div class="section-title"><h2>编码器实时反馈</h2><span>20 ms 轮速环</span></div>
+        <div class="speed-hero"><div><small>左轮转速</small><strong id="rpmLeft">--</strong><span>RPM</span></div><div><small>右轮转速</small><strong id="rpmRight">--</strong><span>RPM</span></div></div>
+        <div class="data-grid four" style="margin-top:9px"><div><small>左边沿/20 ms</small><strong id="encLeft">--</strong></div><div><small>右边沿/20 ms</small><strong id="encRight">--</strong></div><div><small>左 PWM</small><strong id="pwmLeft">--</strong></div><div><small>右 PWM</small><strong id="pwmRight">--</strong></div></div>
+        <div class="data-grid four" style="margin-top:7px"><div><small>左目标</small><strong id="motorTargetLeft">--</strong></div><div><small>右目标</small><strong id="motorTargetRight">--</strong></div><div><small>左累计</small><strong id="totalLeft">--</strong></div><div><small>右累计</small><strong id="totalRight">--</strong></div></div>
+      </section>
 
-    function powerToPwm() {
-      return Math.round(Number(el("power").value) * PWM_MAX / 100);
-    }
+      <section class="card">
+        <div class="section-title"><h2>闭环轮速档位</h2><span>40 → 58</span></div>
+        <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
+        <div class="button-grid two-buttons track-run-buttons"><button class="button primary requires-connection" id="gearStartButton" disabled>开始闭环测速</button><button class="button stop-button requires-connection" id="motorStopButton" disabled>■ 停车</button></div>
+      </section>
 
-    function startTest() {
-      const pwm = powerToPwm();
-      if (pwm <= 0) return stopTest();
-      activeCommand = "PWM " + pwm + " " + pwm;
-      el("runState").textContent = "运行";
-      send(activeCommand);
-    }
+      <details class="card fold-card">
+        <summary>架空开环 PWM 测试</summary>
+        <p class="group-hint waveform-hint">网页 100% 对应当前测试上限 PWM 900。必须架空车轮并能立即断电。</p>
+        <div class="range-row"><span>测试功率</span><output id="powerOutput">30%</output></div>
+        <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
+        <div class="button-grid two-buttons"><button class="button primary requires-connection" id="pwmStartButton" disabled>开始 PWM</button><button class="button ghost requires-connection" id="pwmFullButton" disabled>100% / PWM 900</button></div>
+      </details>
 
-    function stopTest() {
-      activeCommand = "";
-      el("runState").textContent = "停止";
-      send("STOP");
-    }
-
-    function resetMeasurement() {
-      activeCommand = "";
-      maxRpmL = 0;
-      maxRpmR = 0;
-      leftHistory.length = 0;
-      rightHistory.length = 0;
-      el("maxRpmL").textContent = "0";
-      el("maxRpmR").textContent = "0";
-      el("runState").textContent = "停止";
-      send("CLEAR");
-    }
-
-    function movingAverage(history, value) {
-      history.push(value);
-      if (history.length > SMOOTH_SAMPLES) history.shift();
-      return history.reduce((sum, item) => sum + item, 0) / history.length;
-    }
-
-    function parseTelemetry(line) {
-      if (!(line.startsWith("T ") || line.startsWith("STATUS "))) return;
-      const values = {};
-      for (const item of line.split(/\s+/).slice(1)) {
-        const split = item.indexOf("=");
-        if (split > 0) values[item.slice(0, split)] = item.slice(split + 1);
-      }
-      const edgesL = Number(values.encL || 0);
-      const edgesR = Number(values.encR || 0);
-      const edgesPerRev = Math.max(1, Number(el("edgesPerRev").value) || 1);
-      const rpmFactor = 60000 / CONTROL_PERIOD_MS / edgesPerRev;
-      const rpmL = movingAverage(leftHistory, edgesL) * rpmFactor;
-      const rpmR = movingAverage(rightHistory, edgesR) * rpmFactor;
-      maxRpmL = Math.max(maxRpmL, rpmL);
-      maxRpmR = Math.max(maxRpmR, rpmR);
-      el("rpmL").textContent = Math.round(rpmL);
-      el("rpmR").textContent = Math.round(rpmR);
-      el("maxRpmL").textContent = Math.round(maxRpmL);
-      el("maxRpmR").textContent = Math.round(maxRpmR);
-      el("encL").textContent = edgesL;
-      el("encR").textContent = edgesR;
-      el("totalL").textContent = values.totalL ?? "—";
-      el("totalR").textContent = values.totalR ?? "—";
-      el("outL").textContent = values.pwmL ?? "—";
-      el("outR").textContent = values.pwmR ?? "—";
-      el("fault").textContent = values.fault === "1" ? "有" : "无";
-      if (values.mode === "STOP") el("runState").textContent = "停止";
-    }
-
-    function handleLine(line) {
-      if (!line) return;
-      log("< " + line);
-      parseTelemetry(line);
-      if (line.includes("encoder_fault") || line.includes("watchdog")) {
-        activeCommand = "";
-        el("runState").textContent = "已停车";
-      }
-    }
-
-    async function readLoop() {
-      const decoder = new TextDecoder();
-      keepReading = true;
-      while (port?.readable && keepReading) {
-        reader = port.readable.getReader();
-        try {
-          while (keepReading) {
-            const result = await reader.read();
-            if (result.done) break;
-            lineBuffer += decoder.decode(result.value, { stream: true });
-            const lines = lineBuffer.split(/\r?\n/);
-            lineBuffer = lines.pop();
-            lines.forEach(handleLine);
-          }
-        } catch (error) {
-          if (keepReading) log("读取失败：" + error.message);
-        } finally {
-          reader.releaseLock();
-          reader = undefined;
-        }
-      }
-    }
-
-    async function disconnect() {
-      activeCommand = "";
-      if (!port) return;
-      try { await send("STOP", false); } catch (_) {}
-      keepReading = false;
-      if (reader) await reader.cancel().catch(() => {});
-      await writeChain;
-      await port.close().catch(() => {});
-      port = undefined;
-      el("runState").textContent = "停止";
-      setConnected(false);
-      log("串口已断开");
-    }
-
-    el("connect").addEventListener("click", async () => {
-      if (!("serial" in navigator)) {
-        log("请使用桌面版 Chrome/Edge，并通过 localhost 打开本页面。");
-        return;
-      }
-      try {
-        port = await navigator.serial.requestPort();
-        await port.open({ baudRate: BAUD_RATE, dataBits: 8, stopBits: 1, parity: "none", flowControl: "none" });
-        setConnected(true);
-        log("串口已连接：57600 8N1");
-        readLoop();
-        await send("TELEM 100");
-        await send("PING");
-      } catch (error) {
-        log("连接失败：" + error.message);
-        port = undefined;
-        setConnected(false);
-      }
-    });
-
-    el("disconnect").addEventListener("click", disconnect);
-    el("power").addEventListener("input", event => {
-      el("powerValue").textContent = event.target.value;
-      if (activeCommand.startsWith("PWM")) startTest();
-    });
-    el("start").addEventListener("click", startTest);
-    el("full").addEventListener("click", () => {
-      el("power").value = "100";
-      el("powerValue").textContent = "100";
-      startTest();
-    });
-    el("stop").addEventListener("click", stopTest);
-    el("reset").addEventListener("click", resetMeasurement);
-    el("edgesPerRev").addEventListener("change", () => {
-      maxRpmL = 0;
-      maxRpmR = 0;
-      leftHistory.length = 0;
-      rightHistory.length = 0;
-      el("maxRpmL").textContent = "0";
-      el("maxRpmR").textContent = "0";
-    });
-    setConnected(false);
-    setInterval(() => { if (activeCommand) send(activeCommand, false); }, 300);
-    navigator.serial?.addEventListener("disconnect", disconnect);
-    window.addEventListener("beforeunload", () => {
-      if (port?.writable) send("STOP", false);
-    });
-  </script>
+      <details class="card fold-card">
+        <summary>RPM 与串口诊断</summary>
+        <div class="parameter-grid" style="padding-top:12px"><label>每圈 A 相双边沿数<input class="param-input" id="edgesPerRev" type="number" min="1" step="1" value="40"></label><label>编码器故障<input class="param-input" id="encoderFault" value="--" readonly></label></div>
+        <pre class="log-window" id="diagnosticLog" style="height:190px"></pre>
+      </details>
+    </section>
+  </main>
+  <script src="app.js?v=20260902-mspm0"></script>
 </body>
 </html>
