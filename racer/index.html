@@ -6,13 +6,9 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-test-modes">
+  <link rel="stylesheet" href="styles.css?v=20260902-speed-chart">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
-    .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
-    .battery-warning strong { color: #ffd5db; }
-    .battery-good { color: var(--green) !important; }
-    .battery-low { color: var(--red) !important; }
     .speed-hero { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
     .speed-hero>div { padding:18px 8px; border:1px solid var(--line); border-radius:13px; background:rgba(3,11,20,.42); text-align:center; }
     .speed-hero small { display:block; color:var(--muted); }
@@ -52,7 +48,6 @@
       .connection-label{grid-column:1/-1}
       #connectButton,#disconnectButton{width:100%}
       .device-name{grid-column:1}
-      .battery-pill{grid-column:2}
       .seven-gears{grid-template-columns:repeat(4,minmax(0,1fr))}
       .capture-actions{grid-template-columns:repeat(2,1fr)}
       .battery-detail{grid-template-columns:1fr}
@@ -83,13 +78,10 @@
         <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>断开</button>
         <strong class="device-name" id="deviceName">MSPM0G3507 天猛星</strong>
-        <span class="battery-pill">电压 <strong id="voltageValue">--</strong></span>
       </div>
       <p class="message" id="firmwareBuildBadge">固件编译：连接后读取</p>
       <p class="message" id="message" aria-live="polite">连接后自动记录四路 ADC；也可以离线读取 CSV。</p>
     </section>
-
-    <section class="card battery-warning" id="batteryWarning" hidden>⚠ 电池电压 <strong id="batteryWarningValue">--</strong> V，已到 10.5 V 或更低，请停车检查电池。</section>
 
     <section class="card master-control-card">
       <div class="section-title"><h2>统一电机控制</h2><span>先选模式，再启动</span></div>
@@ -172,10 +164,9 @@
       </details>
 
       <details class="card fold-card">
-        <summary>电池电压换算</summary>
-        <div class="battery-detail" style="margin-top:12px"><div><small>PA27 ADC 原始值</small><strong id="batteryRawValue">--</strong></div><div><small>PA27 脚电压</small><strong id="batteryAdcVoltage">-- V</strong></div><div><small>电池电压</small><strong id="batteryDetailVoltage">-- V</strong></div></div>
-        <label class="group-hint" style="display:block;margin-top:12px">硬件分压倍率（手册为 1/11）<input class="compact-input" id="dividerRatio" type="number" min="1" step="0.01" value="11.00"></label>
-        <p class="group-hint">D153B/D24A 手册明确使用 10 kΩ + 1 kΩ 分压。电池电压 = ADC ÷ 4095 × 3.3 × 11；10.5 V 提醒仍由网页判断。</p>
+        <summary>PA27 原始采样（暂不换算电压）</summary>
+        <div class="battery-detail" style="margin-top:12px"><div><small>PA27 ADC 原始值</small><strong id="batteryRawValue">--</strong></div></div>
+        <p class="group-hint" style="margin-top:12px">驱动板手册确认硬件为 1/11 分压，但当前实测电池约 12 V 时换算结果偏到 14.5–15 V。参考电压或接线尚未实测确认前，不显示不可信的电池电压，也不做低压提醒。</p>
       </details>
     </section>
 
@@ -185,15 +176,20 @@
         <div class="speed-hero"><div><small>左轮转速</small><strong id="rpmLeft">--</strong><span>RPM</span></div><div><small>右轮转速</small><strong id="rpmRight">--</strong><span>RPM</span></div></div>
         <div class="data-grid four" style="margin-top:9px"><div><small>左边沿/20 ms</small><strong id="encLeft">--</strong></div><div><small>右边沿/20 ms</small><strong id="encRight">--</strong></div><div><small>左 PWM</small><strong id="pwmLeft">--</strong></div><div><small>右 PWM</small><strong id="pwmRight">--</strong></div></div>
         <div class="data-grid four" style="margin-top:7px"><div><small>左目标</small><strong id="motorTargetLeft">--</strong></div><div><small>右目标</small><strong id="motorTargetRight">--</strong></div><div><small>左累计</small><strong id="totalLeft">--</strong></div><div><small>右累计</small><strong id="totalRight">--</strong></div></div>
+        <div class="section-title motor-chart-title"><h2>编码器返回曲线</h2><span>原始值 · 边沿/20 ms</span></div>
+        <canvas id="motorSpeedChart" width="640" height="260" aria-label="左右编码器返回值曲线"></canvas>
+        <div class="chart-legend"><span class="cyan">左轮</span><span class="orange">右轮</span></div>
+        <p class="group-hint motor-chart-hint">曲线直接显示固件返回值，不依赖 RPM 换算参数，适合比较加速、稳态波动和左右轮差异。</p>
       </section>
 
       <details class="card fold-card">
         <summary>RPM 与串口诊断</summary>
-        <div class="parameter-grid" style="padding-top:12px"><label>每圈 A 相双边沿数<input class="param-input" id="edgesPerRev" type="number" min="1" step="1" value="40"></label><label>编码器故障<input class="param-input" id="encoderFault" value="--" readonly></label></div>
+        <div class="parameter-grid" style="padding-top:12px"><label>A 相双边沿/输出轴一圈<input class="param-input" id="edgesPerRev" type="number" min="1" step="0.001" value="530.634"></label><label>编码器故障<input class="param-input" id="encoderFault" value="--" readonly></label></div>
+        <p class="group-hint">当前按霍尔版计算：13 线 × 实际减速比 20.409 × A 相双边沿 2 = 530.634。约 60 边沿/20 ms 对应约 339 RPM。若实物是 500 线 GMR 版，此参数应改为 20409。</p>
         <pre class="log-window" id="diagnosticLog" style="height:190px"></pre>
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-test-modes"></script>
+  <script src="app.js?v=20260902-speed-chart"></script>
 </body>
 </html>

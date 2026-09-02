@@ -6,12 +6,9 @@ const PWM_MAX = 2133;
 const MOTION_HEARTBEAT_MS = 100;
 const TELEMETRY_TIMEOUT_MS = 250;
 const ADC_MAX = 4095;
-const ADC_VREF = 3.3;
-const BATTERY_DIVIDER = 11;
-const LOW_BATTERY_V = 10.5;
-const BATTERY_RESET_V = 10.8;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
+const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
 const sensorRanges = {
   lt: [700, 3430],
   ll: [0, 1600],
@@ -36,8 +33,6 @@ let runningMode = "";
 let encoderFaultActive = false;
 let selectedTrackSpeed = 4000;
 let selectedMotorGear = 1;
-let latestBatteryRaw = NaN;
-let lowBatteryNotified = false;
 let buildInfoConfirmed = false;
 let sessionNumber = 1;
 let sessionStartedAt = Date.now();
@@ -117,6 +112,7 @@ function selectTab(name) {
     panel.hidden = !active;
   });
   if (name === "sensor") drawSensorChart();
+  if (name === "motor") drawMotorSpeedChart();
 }
 
 function numberValue(value) {
@@ -146,31 +142,10 @@ function updateSensorMeter(key, raw) {
   return percent;
 }
 
-function batteryVoltage(raw) {
-  const ratio = Math.max(1, numberValue(ui.dividerRatio.value) || BATTERY_DIVIDER);
-  return raw / ADC_MAX * ADC_VREF * ratio;
-}
-
-function updateBattery(raw) {
+function updateBatteryRaw(raw) {
   if (!Number.isFinite(raw) || raw <= 0) return NaN;
-  latestBatteryRaw = raw;
-  const adcVoltage = raw / ADC_MAX * ADC_VREF;
-  const voltage = batteryVoltage(raw);
-  ui.voltageValue.textContent = `${voltage.toFixed(2)} V`;
-  ui.voltageValue.classList.toggle("battery-low", voltage <= LOW_BATTERY_V);
-  ui.voltageValue.classList.toggle("battery-good", voltage > LOW_BATTERY_V);
-  ui.batteryRawValue.textContent = raw;
-  ui.batteryAdcVoltage.textContent = `${adcVoltage.toFixed(3)} V`;
-  ui.batteryDetailVoltage.textContent = `${voltage.toFixed(2)} V`;
-  ui.batteryWarningValue.textContent = voltage.toFixed(2);
-  ui.batteryWarning.hidden = voltage > LOW_BATTERY_V;
-  if (voltage <= LOW_BATTERY_V && !lowBatteryNotified) {
-    lowBatteryNotified = true;
-    alert(`电池电压为 ${voltage.toFixed(2)} V，已到 10.5 V 或更低，请停车检查电池。`);
-  } else if (voltage >= BATTERY_RESET_V) {
-    lowBatteryNotified = false;
-  }
-  return voltage;
+  ui.batteryRawValue.textContent = Math.round(raw);
+  return NaN;
 }
 
 function movingAverage(history, value) {
@@ -284,12 +259,12 @@ function parseTelemetry(line) {
   setTelemetryState("正常 · 50 ms", true);
   const encLeft = Number.isFinite(encLeftValue) ? encLeftValue : 0;
   const encRight = Number.isFinite(encRightValue) ? encRightValue : 0;
-  const edgesPerRev = Math.max(1, numberValue(ui.edgesPerRev.value) || 40);
+  const edgesPerRev = Math.max(1, numberValue(ui.edgesPerRev.value) || HALL_EDGES_PER_OUTPUT_REV);
   const rpmFactor = 60000 / CONTROL_PERIOD_MS / edgesPerRev;
   const rpmLeft = movingAverage(rpmLeftHistory, encLeft) * rpmFactor;
   const rpmRight = movingAverage(rpmRightHistory, encRight) * rpmFactor;
   const derived = {
-    batteryV: updateBattery(numberValue(v.bat)),
+    batteryV: updateBatteryRaw(numberValue(v.bat)),
     ltPct: updateSensorMeter("lt", lt),
     llPct: updateSensorMeter("ll", ll),
     rtPct: updateSensorMeter("rt", rt),
@@ -557,6 +532,79 @@ function drawSensorChart() {
   context.fillText(`最近 ${samples.length} 条`, margin.left, height - 3);
 }
 
+function drawMotorSpeedChart() {
+  const canvas = ui.motorSpeedChart;
+  if (!canvas) return;
+  const width = Math.max(280, canvas.clientWidth || 640);
+  const height = Math.max(210, canvas.clientHeight || 250);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pixelWidth = Math.round(width * dpr);
+  const pixelHeight = Math.round(height * dpr);
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+  }
+  const context = canvas.getContext("2d");
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const margin = { left: 42, right: 10, top: 20, bottom: 24 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const records = sensorHistory.slice(-CHART_POINTS);
+  const samples = records.filter((record) => record.record_type === "SAMPLE");
+  context.font = "10px ui-monospace, Consolas, monospace";
+  if (!samples.length) {
+    context.fillStyle = "#70869a";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("连接后显示左右编码器返回值", margin.left + chartWidth / 2, margin.top + chartHeight / 2);
+    return;
+  }
+  const values = samples.flatMap((record) => [numberValue(record.enc_left), numberValue(record.enc_right)])
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const yMax = Math.max(10, Math.ceil(Math.max(...values, 0) / 10) * 10);
+  context.textAlign = "right";
+  context.textBaseline = "middle";
+  for (let index = 0; index <= 4; index += 1) {
+    const value = yMax * index / 4;
+    const y = margin.top + chartHeight - index * chartHeight / 4;
+    context.strokeStyle = "rgba(145, 167, 187, .14)";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(margin.left, y);
+    context.lineTo(width - margin.right, y);
+    context.stroke();
+    context.fillStyle = "#70869a";
+    context.fillText(value.toFixed(value < 10 ? 1 : 0), margin.left - 6, y);
+  }
+  const firstTime = numberValue(records[0].elapsed_ms) || 0;
+  const lastTime = numberValue(records.at(-1).elapsed_ms) || firstTime + samples.length;
+  const timeSpan = Math.max(1, lastTime - firstTime);
+  const xFor = (record) => margin.left + ((numberValue(record.elapsed_ms) || firstTime) - firstTime) * chartWidth / timeSpan;
+  for (const item of [{ key: "enc_left", color: "#43d5ff" }, { key: "enc_right", color: "#ffbd66" }]) {
+    context.strokeStyle = item.color;
+    context.lineWidth = 2;
+    context.lineJoin = "round";
+    context.beginPath();
+    let started = false;
+    samples.forEach((record) => {
+      const value = numberValue(record[item.key]);
+      if (!Number.isFinite(value)) return;
+      const x = xFor(record);
+      const y = margin.top + chartHeight - Math.max(0, value) / yMax * chartHeight;
+      if (!started) { context.moveTo(x, y); started = true; }
+      else context.lineTo(x, y);
+    });
+    context.stroke();
+  }
+  context.fillStyle = "#70869a";
+  context.textAlign = "left";
+  context.textBaseline = "top";
+  context.fillText("边沿 / 20 ms", margin.left, 4);
+  context.textBaseline = "bottom";
+  context.fillText(`最近 ${samples.length} 条`, margin.left, height - 3);
+}
+
 function updateCaptureStatus() {
   const samples = sensorHistory.filter((record) => record.record_type === "SAMPLE").length;
   const events = sensorHistory.length - samples;
@@ -564,6 +612,7 @@ function updateCaptureStatus() {
   ui.copyCsvButton.disabled = sensorHistory.length === 0;
   ui.exportCsvButton.disabled = sensorHistory.length === 0;
   drawSensorChart();
+  drawMotorSpeedChart();
 }
 
 function csvCell(value) {
@@ -709,6 +758,8 @@ function importCsv(text, fileName) {
 
 function startNewSession() {
   sensorHistory = [];
+  rpmLeftHistory.length = 0;
+  rpmRightHistory.length = 0;
   sessionNumber += 1;
   sessionStartedAt = Date.now();
   updateCaptureStatus();
@@ -794,8 +845,10 @@ ui.csvFileInput.addEventListener("change", async () => {
   catch (error) { setMessage(`读取 CSV 失败：${error.message}`, true); }
   finally { ui.csvFileInput.value = ""; }
 });
-ui.dividerRatio.addEventListener("change", () => { if (Number.isFinite(latestBatteryRaw)) updateBattery(latestBatteryRaw); });
-window.addEventListener("resize", drawSensorChart);
+window.addEventListener("resize", () => {
+  drawSensorChart();
+  drawMotorSpeedChart();
+});
 navigator.serial?.addEventListener("disconnect", disconnectSerial);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden && activeRepeatCommand) safetyStop("页面进入后台");
