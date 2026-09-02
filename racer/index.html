@@ -137,10 +137,10 @@
 
       <details class="card fold-card">
         <summary>架空开环 PWM 测试</summary>
-        <p class="group-hint waveform-hint">网页 100% 对应当前测试上限 PWM 900。必须架空车轮并能立即断电。</p>
-        <div class="range-row"><span>测试功率</span><output id="powerOutput">30%</output></div>
+        <p class="group-hint waveform-hint"><strong>高速测试：</strong>100% 对应定时器真实满量程 PWM 2133；旧测试上限 PWM 900 约为 42%。请从低值逐级增加，必须架空车轮并保留物理断电手段。遥测丢失 250 ms、页面退到后台或编码器异常时会请求停车，固件失联 400 ms 自动归零电机输出。</p>
+        <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
         <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
-        <div class="button-grid two-buttons"><button class="button primary requires-connection" id="pwmStartButton" disabled>开始 PWM</button><button class="button ghost requires-connection" id="pwmFullButton" disabled>100% / PWM 900</button></div>
+        <div class="button-grid two-buttons"><button class="button primary requires-connection" id="pwmStartButton" disabled>开始 PWM</button><button class="button ghost requires-connection" id="pwmFullButton" disabled>设为 100%（不启动）</button></div>
       </details>
 
       <details class="card fold-card">
@@ -150,6 +150,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-mspm0"></script>
+  <script src="app.js?v=20260902-highspeed-pd"></script>
 </body>
 </html>

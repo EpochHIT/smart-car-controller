@@ -2,7 +2,9 @@
 
 const BAUD_RATE = 57600;
 const CONTROL_PERIOD_MS = 20;
-const PWM_MAX = 900;
+const PWM_MAX = 2133;
+const MOTION_HEARTBEAT_MS = 100;
+const TELEMETRY_TIMEOUT_MS = 250;
 const ADC_MAX = 4095;
 const ADC_VREF = 3.3;
 const LOW_BATTERY_V = 10.5;
@@ -23,6 +25,8 @@ let keepReading = false;
 let writeChain = Promise.resolve();
 let lineBuffer = "";
 let activeRepeatCommand = "";
+let lastTelemetryAt = 0;
+let safetyStopLatched = false;
 let selectedTrackSpeed = 4000;
 let selectedMotorGear = 1;
 let latestBatteryRaw = NaN;
@@ -66,8 +70,9 @@ async function send(command, show = true) {
       writer.releaseLock();
     }
   }).catch((error) => {
+    if (activeRepeatCommand) activeRepeatCommand = "";
     addLog(`发送失败：${error.message}`);
-    setMessage(`发送失败：${error.message}`, true);
+    setMessage(`发送失败：${error.message}；固件会在 400 ms 内停车`, true);
   });
   if (show) addLog(`> ${command}`);
   return writeChain;
@@ -224,8 +229,22 @@ function parseTelemetry(line) {
   const ll = numberValue(v.ll);
   const rt = numberValue(v.rt);
   const rl = numberValue(v.rl);
-  const encLeft = numberValue(v.encL) || 0;
-  const encRight = numberValue(v.encR) || 0;
+  const encLeftValue = numberValue(v.encL);
+  const encRightValue = numberValue(v.encR);
+  const pwmLeftValue = numberValue(v.pwmL);
+  const pwmRightValue = numberValue(v.pwmR);
+  const complete = [lt, ll, rt, rl, encLeftValue, encRightValue,
+    pwmLeftValue, pwmRightValue, numberValue(v.bat)].every(Number.isFinite) &&
+    typeof v.mode === "string";
+  if (line.startsWith("T ")) {
+    if (!complete) {
+      if (activeRepeatCommand) safetyStop("收到的高速遥测字段不完整");
+      return true;
+    }
+    lastTelemetryAt = Date.now();
+  }
+  const encLeft = Number.isFinite(encLeftValue) ? encLeftValue : 0;
+  const encRight = Number.isFinite(encRightValue) ? encRightValue : 0;
   const edgesPerRev = Math.max(1, numberValue(ui.edgesPerRev.value) || 40);
   const rpmFactor = 60000 / CONTROL_PERIOD_MS / edgesPerRev;
   const rpmLeft = movingAverage(rpmLeftHistory, encLeft) * rpmFactor;
@@ -258,6 +277,9 @@ function parseTelemetry(line) {
   ui.totalLeft.textContent = v.totalL ?? "--";
   ui.totalRight.textContent = v.totalR ?? "--";
   ui.encoderFault.value = v.fault === "1" ? "有" : "无";
+  if (activeRepeatCommand && v.fault === "1") {
+    safetyStop("固件报告编码器异常");
+  }
 
   if (line.startsWith("T ") && [lt, ll, rt, rl].every(Number.isFinite)) captureTelemetry(v, derived);
   return true;
@@ -266,9 +288,10 @@ function parseTelemetry(line) {
 function handleLine(line) {
   if (!line) return;
   const telemetryLine = parseTelemetry(line);
-  if (!telemetryLine) addLog(`< ${line}`);
+  if (!telemetryLine && line !== "PONG") addLog(`< ${line}`);
   if (line.includes("encoder_fault") || line.includes("track_lost") || line.includes("watchdog")) {
     activeRepeatCommand = "";
+    safetyStopLatched = true;
     setMessage(`小车已停车：${line}`, true);
   }
 }
@@ -305,6 +328,8 @@ async function connectSerial() {
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: BAUD_RATE, dataBits: 8, stopBits: 1, parity: "none", flowControl: "none" });
     setConnected(true);
+    lastTelemetryAt = Date.now();
+    safetyStopLatched = false;
     setMessage("已连接，正在以 50 ms 周期自动记录数据");
     addLog("串口已连接：57600 8N1");
     readLoop();
@@ -319,6 +344,7 @@ async function connectSerial() {
 
 async function disconnectSerial() {
   activeRepeatCommand = "";
+  safetyStopLatched = false;
   if (!port) return;
   try { await send("STOP", false); } catch (_) { }
   keepReading = false;
@@ -332,8 +358,27 @@ async function disconnectSerial() {
 
 function stopCar(markEvent = true) {
   activeRepeatCommand = "";
+  safetyStopLatched = false;
   send("STOP");
   if (markEvent) addHistoryEvent("END");
+}
+
+function armMotion(command, message) {
+  safetyStopLatched = false;
+  lastTelemetryAt = Date.now();
+  activeRepeatCommand = "PING";
+  send(command);
+  setMessage(message);
+}
+
+function safetyStop(reason) {
+  if (safetyStopLatched) return;
+  safetyStopLatched = true;
+  activeRepeatCommand = "";
+  send("STOP", false);
+  addHistoryEvent("SAFETY_STOP");
+  addLog(`安全停车：${reason}`);
+  setMessage(`安全停车：${reason}`, true);
 }
 
 function drawSensorChart() {
@@ -588,10 +633,9 @@ document.querySelectorAll("#trackGears button").forEach((button) => button.addEv
   document.querySelectorAll("#trackGears button").forEach((item) => item.classList.toggle("selected", item === button));
 }));
 ui.trackStartButton.addEventListener("click", async () => {
-  activeRepeatCommand = "";
-  await send(`TRACK ${selectedTrackSpeed}`);
+  armMotion(`TRACK ${selectedTrackSpeed}`,
+    `已启动循迹：${(selectedTrackSpeed / 100).toFixed(0)} 边沿/20 ms`);
   addHistoryEvent("START");
-  setMessage(`已启动循迹：${(selectedTrackSpeed / 100).toFixed(0)} 边沿/20 ms`);
 });
 
 document.querySelectorAll("#motorGears button").forEach((button) => button.addEventListener("click", () => {
@@ -599,22 +643,24 @@ document.querySelectorAll("#motorGears button").forEach((button) => button.addEv
   document.querySelectorAll("#motorGears button").forEach((item) => item.classList.toggle("selected", item === button));
 }));
 ui.gearStartButton.addEventListener("click", () => {
-  activeRepeatCommand = `GEAR ${selectedMotorGear}`;
-  send(activeRepeatCommand);
-  setMessage(`闭环测速已启动：GEAR ${selectedMotorGear}`);
+  armMotion(`GEAR ${selectedMotorGear}`,
+    `闭环测速已启动：GEAR ${selectedMotorGear}`);
 });
-ui.powerRange.addEventListener("input", () => { ui.powerOutput.textContent = `${ui.powerRange.value}%`; });
+function updatePowerOutput() {
+  const percent = Number(ui.powerRange.value);
+  ui.powerOutput.textContent = `${percent}% · PWM ${Math.round(percent * PWM_MAX / 100)}`;
+}
+ui.powerRange.addEventListener("input", updatePowerOutput);
 ui.pwmStartButton.addEventListener("click", () => {
   const pwm = Math.round(Number(ui.powerRange.value) * PWM_MAX / 100);
   if (pwm <= 0) { stopCar(false); return; }
-  activeRepeatCommand = `PWM ${pwm} ${pwm}`;
-  send(activeRepeatCommand);
+  armMotion(`PWM ${pwm} ${pwm}`,
+    `开环高速测试已启动：PWM ${pwm}/${PWM_MAX}`);
 });
 ui.pwmFullButton.addEventListener("click", () => {
   ui.powerRange.value = "100";
-  ui.powerOutput.textContent = "100%";
-  activeRepeatCommand = "PWM 900 900";
-  send(activeRepeatCommand);
+  updatePowerOutput();
+  setMessage("已设为真实 100%，尚未启动；确认车轮架空后再点“开始 PWM”", true);
 });
 
 ui.newSessionButton.addEventListener("click", startNewSession);
@@ -631,8 +677,22 @@ ui.csvFileInput.addEventListener("change", async () => {
 ui.dividerRatio.addEventListener("change", () => { if (Number.isFinite(latestBatteryRaw)) updateBattery(latestBatteryRaw); });
 window.addEventListener("resize", drawSensorChart);
 navigator.serial?.addEventListener("disconnect", disconnectSerial);
-window.addEventListener("beforeunload", () => { if (port?.writable) send("STOP", false); });
-setInterval(() => { if (activeRepeatCommand) send(activeRepeatCommand, false); }, 300);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && activeRepeatCommand) safetyStop("页面进入后台");
+});
+window.addEventListener("beforeunload", () => {
+  activeRepeatCommand = "";
+  if (port?.writable) send("STOP", false);
+});
+setInterval(() => {
+  if (!activeRepeatCommand) return;
+  if ((Date.now() - lastTelemetryAt) > TELEMETRY_TIMEOUT_MS) {
+    safetyStop(`${TELEMETRY_TIMEOUT_MS} ms 内没有收到完整遥测`);
+    return;
+  }
+  send(activeRepeatCommand, false);
+}, MOTION_HEARTBEAT_MS);
 
 setConnected(false);
 updateCaptureStatus();
+updatePowerOutput();
