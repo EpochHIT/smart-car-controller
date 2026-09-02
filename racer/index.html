@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-unified-control">
+  <link rel="stylesheet" href="styles.css?v=20260902-adc-resume">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
@@ -108,7 +108,7 @@
       </div>
       <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · 目标 40 边沿/20 ms</strong></div>
       <p class="telemetry-state" id="telemetryState">遥测：尚未连接</p>
-      <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>▶ 启动电机</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
+      <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>先连接 BT04-A</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
     </section>
 
     <nav class="tabs" aria-label="功能导航">
@@ -186,6 +186,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-unified-control"></script>
+  <script src="app.js?v=20260902-adc-resume"></script>
 </body>
 </html>

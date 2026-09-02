@@ -69,6 +69,9 @@ function setConnected(connected) {
 
 function updateMotorStartAvailability() {
   ui.motorStartButton.disabled = !isConnected || !telemetryReady;
+  if (!isConnected) ui.motorStartButton.textContent = "先连接 BT04-A";
+  else if (!telemetryReady) ui.motorStartButton.textContent = "等待遥测，暂不能启动";
+  else ui.motorStartButton.textContent = "▶ 启动电机";
 }
 
 function setTelemetryState(text, ready) {
@@ -379,6 +382,13 @@ async function connectSerial() {
     setMessage("已连接，正在以 50 ms 周期自动记录数据");
     addLog("串口已连接：57600 8N1");
     readLoop();
+    const connectedPort = port;
+    window.setTimeout(() => {
+      if ((port === connectedPort) && isConnected && !telemetryReady) {
+        setTelemetryState("未收到单片机返回", false);
+        setMessage("BT04-A 已连接，但单片机没有返回数据：请烧录最新固件，并确认模块为 57600、TX/RX 交叉连接", true);
+      }
+    }, 1200);
     await send("INFO");
     await send("TELEM 50");
     await send("STATUS", false);
