@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-adc-resume">
+  <link rel="stylesheet" href="styles.css?v=20260902-test-modes">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
@@ -32,9 +32,14 @@
     .mode-switch { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:12px; }
     .mode-button { min-height:46px; padding:8px 5px; border:1px solid var(--line); border-radius:10px; background:rgba(3,10,18,.64); color:var(--muted); font-weight:850; }
     .mode-button.selected { border-color:var(--cyan); background:rgba(67,213,255,.14); color:var(--cyan); box-shadow:inset 0 0 0 1px rgba(67,213,255,.15); }
+    .mode-switch.two-mode { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .mode-panel { margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:11px; background:rgba(3,10,18,.42); }
     .mode-panel[hidden] { display:none; }
     .mode-panel>p { margin:0 0 8px; color:var(--muted); font-size:.76rem; line-height:1.5; }
+    .test-type-switch { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:10px; padding:4px; border-radius:10px; background:rgba(0,0,0,.2); }
+    .test-type-button { min-height:38px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--muted); font-size:.76rem; font-weight:850; }
+    .test-type-button.selected { border-color:rgba(67,213,255,.38); background:rgba(67,213,255,.12); color:var(--cyan); }
+    .test-control-panel[hidden] { display:none; }
     .control-summary { display:flex; justify-content:space-between; gap:10px; margin-top:10px; padding:10px 12px; border-radius:10px; background:rgba(67,213,255,.08); color:var(--muted); font-size:.75rem; }
     .control-summary strong { color:var(--text); text-align:right; }
     .telemetry-state { margin-top:8px; color:var(--orange); font-size:.72rem; }
@@ -88,23 +93,26 @@
 
     <section class="card master-control-card">
       <div class="section-title"><h2>统一电机控制</h2><span>先选模式，再启动</span></div>
-      <div class="mode-switch" id="runModeSwitch">
+      <div class="mode-switch two-mode" id="runModeSwitch">
         <button class="mode-button selected" data-mode="track" type="button">循迹跑车</button>
-        <button class="mode-button" data-mode="speed" type="button">双轮闭环测速</button>
-        <button class="mode-button" data-mode="pwm" type="button">架空 PWM 测试</button>
+        <button class="mode-button" data-mode="test" type="button">双轮测速</button>
       </div>
       <div class="mode-panel" data-mode-panel="track">
         <p><strong>赛道运行：</strong>选择基础轮速，四路电磁传感器负责循迹和十字识别。</p>
         <div class="seven-gears" id="trackGears"><button class="selected" data-speed="4000">40</button><button data-speed="4300">43</button><button data-speed="4600">46</button><button data-speed="4900">49</button><button data-speed="5200">52</button><button data-speed="5500">55</button><button data-speed="5800">58</button></div>
       </div>
-      <div class="mode-panel" data-mode-panel="speed" hidden>
-        <p><strong>轮速 PD 调试：</strong>两轮使用相同目标，不使用电磁循迹修正。</p>
-        <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
-      </div>
-      <div class="mode-panel" data-mode-panel="pwm" hidden>
-        <p><strong>只限车轮架空：</strong>开环输出不做轮速闭环，用于测最高转速；必须保留物理断电手段。</p>
-        <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
-        <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
+      <div class="mode-panel" data-mode-panel="test" hidden>
+        <p><strong>双轮测速：</strong>测电机极限先用开环 PWM；编码器确认正常后，再用闭环 PD 检查目标轮速。</p>
+        <div class="test-type-switch" id="speedControlSwitch"><button class="test-type-button selected" data-control="pwm" type="button">开环 PWM · 测极限</button><button class="test-type-button" data-control="speed" type="button">闭环 PD · 稳轮速</button></div>
+        <div class="test-control-panel" data-control-panel="pwm">
+          <p><strong>只限车轮架空：</strong>滑块直接决定 PWM，不做轮速闭环；编码器只测量、不触发堵转故障。通信中断仍会停车。</p>
+          <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
+          <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
+        </div>
+        <div class="test-control-panel" data-control-panel="speed" hidden>
+          <p><strong>轮速 PD：</strong>两轮使用相同编码器目标，不使用电磁循迹修正。</p>
+          <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
+        </div>
       </div>
       <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · 目标 40 边沿/20 ms</strong></div>
       <p class="telemetry-state" id="telemetryState">遥测：尚未连接</p>
@@ -186,6 +194,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-adc-resume"></script>
+  <script src="app.js?v=20260902-test-modes"></script>
 </body>
 </html>

@@ -31,7 +31,9 @@ let safetyStopLatched = false;
 let isConnected = false;
 let telemetryReady = false;
 let selectedRunMode = "track";
+let selectedTestControl = "pwm";
 let runningMode = "";
+let encoderFaultActive = false;
 let selectedTrackSpeed = 4000;
 let selectedMotorGear = 1;
 let latestBatteryRaw = NaN;
@@ -63,15 +65,20 @@ function setConnected(connected) {
   document.querySelectorAll(".requires-connection").forEach((node) => { node.disabled = !connected; });
   ui.connectionState.classList.toggle("connected", connected);
   ui.connectionText.textContent = connected ? "已连接" : "未连接";
-  if (!connected) telemetryReady = false;
+  if (!connected) {
+    telemetryReady = false;
+    encoderFaultActive = false;
+  }
   updateMotorStartAvailability();
 }
 
 function updateMotorStartAvailability() {
-  ui.motorStartButton.disabled = !isConnected || !telemetryReady;
+  ui.motorStartButton.disabled = !isConnected || !telemetryReady || encoderFaultActive;
   if (!isConnected) ui.motorStartButton.textContent = "先连接 BT04-A";
   else if (!telemetryReady) ui.motorStartButton.textContent = "等待遥测，暂不能启动";
+  else if (encoderFaultActive) ui.motorStartButton.textContent = "先清除编码器故障";
   else ui.motorStartButton.textContent = "▶ 启动电机";
+  ui.motorStopButton.textContent = encoderFaultActive ? "清除编码器故障" : "■ 立即停车";
 }
 
 function setTelemetryState(text, ready) {
@@ -308,8 +315,10 @@ function parseTelemetry(line) {
   ui.motorTargetRight.textContent = Number.isFinite(numberValue(v.spReqR)) ? (numberValue(v.spReqR) / 100).toFixed(2) : "--";
   ui.totalLeft.textContent = v.totalL ?? "--";
   ui.totalRight.textContent = v.totalR ?? "--";
-  ui.encoderFault.value = v.fault === "1" ? "有" : "无";
-  if (activeRepeatCommand && v.fault === "1") {
+  encoderFaultActive = v.fault === "1";
+  ui.encoderFault.value = encoderFaultActive ? "有" : "无";
+  updateMotorStartAvailability();
+  if (activeRepeatCommand && encoderFaultActive) {
     safetyStop("固件报告编码器异常");
   }
 
@@ -334,10 +343,14 @@ function handleLine(line) {
   }
   const telemetryLine = parseTelemetry(line);
   if (!telemetryLine && line !== "PONG") addLog(`< ${line}`);
-  if (line.includes("encoder_fault") || line.includes("track_lost") || line.includes("watchdog")) {
-    activeRepeatCommand = "";
-    safetyStopLatched = true;
-    setMessage(`小车已停车：${line}`, true);
+  if (line.includes("encoder_fault")) {
+    encoderFaultActive = true;
+    updateMotorStartAvailability();
+    if (activeRepeatCommand) safetyStop("固件报告编码器异常");
+    else setMessage("固件中保留了上次编码器故障；点击“清除编码器故障”后再测试", true);
+  } else if (line.includes("track_lost") || line.includes("watchdog")) {
+    if (activeRepeatCommand) safetyStop(`固件已停车：${line}`);
+    else setMessage(`固件停车记录：${line}`, true);
   }
 }
 
@@ -423,6 +436,18 @@ function stopCar() {
   runningMode = "";
   send("STOP");
   if (wasTracking) addHistoryEvent("END");
+}
+
+function stopOrClearFault() {
+  if (!encoderFaultActive) {
+    stopCar();
+    return;
+  }
+  activeRepeatCommand = "";
+  runningMode = "";
+  safetyStopLatched = false;
+  send("CLEAR");
+  setMessage("已请求停车并清除编码器故障，等待固件确认");
 }
 
 function armMotion(command, mode, message) {
@@ -692,13 +717,13 @@ function startNewSession() {
 
 ui.connectButton.addEventListener("click", connectSerial);
 ui.disconnectButton.addEventListener("click", disconnectSerial);
-ui.motorStopButton.addEventListener("click", stopCar);
+ui.motorStopButton.addEventListener("click", stopOrClearFault);
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
 
 function updateControlSummary() {
   if (selectedRunMode === "track") {
     ui.selectedControlSummary.textContent = `循迹 · 目标 ${selectedTrackSpeed / 100} 边沿/20 ms`;
-  } else if (selectedRunMode === "speed") {
+  } else if (selectedTestControl === "speed") {
     ui.selectedControlSummary.textContent = `双轮闭环 · GEAR ${selectedMotorGear} · 目标 ${gearTargets[selectedMotorGear]}`;
   } else {
     const percent = Number(ui.powerRange.value);
@@ -714,6 +739,15 @@ function selectRunMode(mode) {
 }
 
 document.querySelectorAll("#runModeSwitch .mode-button").forEach((button) => button.addEventListener("click", () => selectRunMode(button.dataset.mode)));
+
+function selectTestControl(control) {
+  selectedTestControl = control;
+  document.querySelectorAll("#speedControlSwitch .test-type-button").forEach((button) => button.classList.toggle("selected", button.dataset.control === control));
+  document.querySelectorAll("[data-control-panel]").forEach((panel) => { panel.hidden = panel.dataset.controlPanel !== control; });
+  updateControlSummary();
+}
+
+document.querySelectorAll("#speedControlSwitch .test-type-button").forEach((button) => button.addEventListener("click", () => selectTestControl(button.dataset.control)));
 
 document.querySelectorAll("#trackGears button").forEach((button) => button.addEventListener("click", () => {
   selectedTrackSpeed = Number(button.dataset.speed);
@@ -737,7 +771,7 @@ ui.motorStartButton.addEventListener("click", () => {
     if (armMotion(`TRACK ${selectedTrackSpeed}`, "track", `已启动循迹：${selectedTrackSpeed / 100} 边沿/20 ms`)) addHistoryEvent("START");
     return;
   }
-  if (selectedRunMode === "speed") {
+  if (selectedTestControl === "speed") {
     armMotion(`GEAR ${selectedMotorGear}`, "speed", `双轮闭环测速已启动：GEAR ${selectedMotorGear}`);
     return;
   }
