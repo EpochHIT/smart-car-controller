@@ -28,6 +28,10 @@ let lineBuffer = "";
 let activeRepeatCommand = "";
 let lastTelemetryAt = 0;
 let safetyStopLatched = false;
+let isConnected = false;
+let telemetryReady = false;
+let selectedRunMode = "track";
+let runningMode = "";
 let selectedTrackSpeed = 4000;
 let selectedMotorGear = 1;
 let latestBatteryRaw = NaN;
@@ -38,6 +42,7 @@ let sessionStartedAt = Date.now();
 let sensorHistory = [];
 const rpmLeftHistory = [];
 const rpmRightHistory = [];
+const gearTargets = [0, 40, 43, 46, 49, 52, 55, 58];
 
 function setMessage(text, error = false) {
   ui.message.textContent = text;
@@ -52,11 +57,25 @@ function addLog(text) {
 }
 
 function setConnected(connected) {
+  isConnected = connected;
   ui.connectButton.disabled = connected;
   ui.disconnectButton.disabled = !connected;
   document.querySelectorAll(".requires-connection").forEach((node) => { node.disabled = !connected; });
   ui.connectionState.classList.toggle("connected", connected);
   ui.connectionText.textContent = connected ? "已连接" : "未连接";
+  if (!connected) telemetryReady = false;
+  updateMotorStartAvailability();
+}
+
+function updateMotorStartAvailability() {
+  ui.motorStartButton.disabled = !isConnected || !telemetryReady;
+}
+
+function setTelemetryState(text, ready) {
+  telemetryReady = ready;
+  ui.telemetryState.textContent = `遥测：${text}`;
+  ui.telemetryState.classList.toggle("ready", ready);
+  updateMotorStartAvailability();
 }
 
 async function send(command, show = true) {
@@ -237,16 +256,22 @@ function parseTelemetry(line) {
   const encRightValue = numberValue(v.encR);
   const pwmLeftValue = numberValue(v.pwmL);
   const pwmRightValue = numberValue(v.pwmR);
-  const complete = [lt, ll, rt, rl, encLeftValue, encRightValue,
-    pwmLeftValue, pwmRightValue, numberValue(v.bat)].every(Number.isFinite) &&
-    typeof v.mode === "string";
-  if (line.startsWith("T ")) {
-    if (!complete) {
-      if (activeRepeatCommand) safetyStop("收到的高速遥测字段不完整");
-      return true;
-    }
-    lastTelemetryAt = Date.now();
+  const requiredFields = [
+    ["mode", typeof v.mode === "string"], ["bat", Number.isFinite(numberValue(v.bat))],
+    ["lt", Number.isFinite(lt)], ["ll", Number.isFinite(ll)], ["rt", Number.isFinite(rt)], ["rl", Number.isFinite(rl)],
+    ["encL", Number.isFinite(encLeftValue)], ["encR", Number.isFinite(encRightValue)],
+    ["pwmL", Number.isFinite(pwmLeftValue)], ["pwmR", Number.isFinite(pwmRightValue)]
+  ];
+  const missingFields = requiredFields.filter(([, valid]) => !valid).map(([name]) => name);
+  if (missingFields.length) {
+    const reason = `字段不完整（缺少 ${missingFields.join("、")}）`;
+    setTelemetryState(reason, false);
+    addLog(`< ${reason}`);
+    if (activeRepeatCommand) safetyStop(`收到的遥测${reason}`);
+    return true;
   }
+  lastTelemetryAt = Date.now();
+  setTelemetryState("正常 · 50 ms", true);
   const encLeft = Number.isFinite(encLeftValue) ? encLeftValue : 0;
   const encRight = Number.isFinite(encRightValue) ? encRightValue : 0;
   const edgesPerRev = Math.max(1, numberValue(ui.edgesPerRev.value) || 40);
@@ -285,7 +310,7 @@ function parseTelemetry(line) {
     safetyStop("固件报告编码器异常");
   }
 
-  if (line.startsWith("T ") && [lt, ll, rt, rl].every(Number.isFinite)) captureTelemetry(v, derived);
+  if (line.startsWith("T ")) captureTelemetry(v, derived);
   return true;
 }
 
@@ -347,6 +372,8 @@ async function connectSerial() {
     setConnected(true);
     lastTelemetryAt = Date.now();
     safetyStopLatched = false;
+    runningMode = "";
+    setTelemetryState("等待第一帧完整数据", false);
     buildInfoConfirmed = false;
     ui.firmwareBuildBadge.textContent = "固件编译：正在读取…";
     setMessage("已连接，正在以 50 ms 周期自动记录数据");
@@ -354,6 +381,7 @@ async function connectSerial() {
     readLoop();
     await send("INFO");
     await send("TELEM 50");
+    await send("STATUS", false);
     await send("PING");
   } catch (error) {
     port = undefined;
@@ -365,6 +393,7 @@ async function connectSerial() {
 async function disconnectSerial() {
   activeRepeatCommand = "";
   safetyStopLatched = false;
+  runningMode = "";
   if (!port) return;
   try { await send("STOP", false); } catch (_) { }
   keepReading = false;
@@ -373,28 +402,38 @@ async function disconnectSerial() {
   await port.close().catch(() => {});
   port = undefined;
   setConnected(false);
+  setTelemetryState("未连接", false);
   setMessage("串口已断开；已记录数据仍可导出");
 }
 
-function stopCar(markEvent = true) {
+function stopCar() {
+  const wasTracking = runningMode === "track";
   activeRepeatCommand = "";
   safetyStopLatched = false;
+  runningMode = "";
   send("STOP");
-  if (markEvent) addHistoryEvent("END");
+  if (wasTracking) addHistoryEvent("END");
 }
 
-function armMotion(command, message) {
+function armMotion(command, mode, message) {
+  if (!telemetryReady || (Date.now() - lastTelemetryAt) > TELEMETRY_TIMEOUT_MS) {
+    setTelemetryState("数据未就绪，已禁止启动", false);
+    setMessage("没有收到最新的完整遥测，电机没有启动", true);
+    return false;
+  }
   safetyStopLatched = false;
-  lastTelemetryAt = Date.now();
   activeRepeatCommand = "PING";
+  runningMode = mode;
   send(command);
   setMessage(message);
+  return true;
 }
 
 function safetyStop(reason) {
   if (safetyStopLatched) return;
   safetyStopLatched = true;
   activeRepeatCommand = "";
+  runningMode = "";
   send("STOP", false);
   addHistoryEvent("SAFETY_STOP");
   addLog(`安全停车：${reason}`);
@@ -643,44 +682,61 @@ function startNewSession() {
 
 ui.connectButton.addEventListener("click", connectSerial);
 ui.disconnectButton.addEventListener("click", disconnectSerial);
-ui.globalStopButton.addEventListener("click", () => stopCar());
-ui.trackStopButton.addEventListener("click", () => stopCar());
-ui.motorStopButton.addEventListener("click", () => stopCar(false));
+ui.motorStopButton.addEventListener("click", stopCar);
 document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
+
+function updateControlSummary() {
+  if (selectedRunMode === "track") {
+    ui.selectedControlSummary.textContent = `循迹 · 目标 ${selectedTrackSpeed / 100} 边沿/20 ms`;
+  } else if (selectedRunMode === "speed") {
+    ui.selectedControlSummary.textContent = `双轮闭环 · GEAR ${selectedMotorGear} · 目标 ${gearTargets[selectedMotorGear]}`;
+  } else {
+    const percent = Number(ui.powerRange.value);
+    ui.selectedControlSummary.textContent = `架空开环 · ${percent}% · PWM ${Math.round(percent * PWM_MAX / 100)}`;
+  }
+}
+
+function selectRunMode(mode) {
+  selectedRunMode = mode;
+  document.querySelectorAll("#runModeSwitch .mode-button").forEach((button) => button.classList.toggle("selected", button.dataset.mode === mode));
+  document.querySelectorAll("[data-mode-panel]").forEach((panel) => { panel.hidden = panel.dataset.modePanel !== mode; });
+  updateControlSummary();
+}
+
+document.querySelectorAll("#runModeSwitch .mode-button").forEach((button) => button.addEventListener("click", () => selectRunMode(button.dataset.mode)));
 
 document.querySelectorAll("#trackGears button").forEach((button) => button.addEventListener("click", () => {
   selectedTrackSpeed = Number(button.dataset.speed);
   document.querySelectorAll("#trackGears button").forEach((item) => item.classList.toggle("selected", item === button));
+  updateControlSummary();
 }));
-ui.trackStartButton.addEventListener("click", async () => {
-  armMotion(`TRACK ${selectedTrackSpeed}`,
-    `已启动循迹：${(selectedTrackSpeed / 100).toFixed(0)} 边沿/20 ms`);
-  addHistoryEvent("START");
-});
 
 document.querySelectorAll("#motorGears button").forEach((button) => button.addEventListener("click", () => {
   selectedMotorGear = Number(button.dataset.gear);
   document.querySelectorAll("#motorGears button").forEach((item) => item.classList.toggle("selected", item === button));
+  updateControlSummary();
 }));
-ui.gearStartButton.addEventListener("click", () => {
-  armMotion(`GEAR ${selectedMotorGear}`,
-    `闭环测速已启动：GEAR ${selectedMotorGear}`);
-});
 function updatePowerOutput() {
   const percent = Number(ui.powerRange.value);
   ui.powerOutput.textContent = `${percent}% · PWM ${Math.round(percent * PWM_MAX / 100)}`;
+  updateControlSummary();
 }
 ui.powerRange.addEventListener("input", updatePowerOutput);
-ui.pwmStartButton.addEventListener("click", () => {
+ui.motorStartButton.addEventListener("click", () => {
+  if (selectedRunMode === "track") {
+    if (armMotion(`TRACK ${selectedTrackSpeed}`, "track", `已启动循迹：${selectedTrackSpeed / 100} 边沿/20 ms`)) addHistoryEvent("START");
+    return;
+  }
+  if (selectedRunMode === "speed") {
+    armMotion(`GEAR ${selectedMotorGear}`, "speed", `双轮闭环测速已启动：GEAR ${selectedMotorGear}`);
+    return;
+  }
   const pwm = Math.round(Number(ui.powerRange.value) * PWM_MAX / 100);
-  if (pwm <= 0) { stopCar(false); return; }
-  armMotion(`PWM ${pwm} ${pwm}`,
-    `开环高速测试已启动：PWM ${pwm}/${PWM_MAX}`);
-});
-ui.pwmFullButton.addEventListener("click", () => {
-  ui.powerRange.value = "100";
-  updatePowerOutput();
-  setMessage("已设为真实 100%，尚未启动；确认车轮架空后再点“开始 PWM”", true);
+  if (pwm <= 0) {
+    setMessage("PWM 为 0，没有启动电机", true);
+    return;
+  }
+  armMotion(`PWM ${pwm} ${pwm}`, "pwm", `架空 PWM 测试已启动：${pwm}/${PWM_MAX}`);
 });
 
 ui.newSessionButton.addEventListener("click", startNewSession);
@@ -707,12 +763,14 @@ window.addEventListener("beforeunload", () => {
 setInterval(() => {
   if (!activeRepeatCommand) return;
   if ((Date.now() - lastTelemetryAt) > TELEMETRY_TIMEOUT_MS) {
-    safetyStop(`${TELEMETRY_TIMEOUT_MS} ms 内没有收到完整遥测`);
+    setTelemetryState(`已中断，连续 ${TELEMETRY_TIMEOUT_MS} ms 无完整数据`, false);
+    safetyStop(`连续 ${TELEMETRY_TIMEOUT_MS} ms（约 5 帧）没有收到完整遥测`);
     return;
   }
   send(activeRepeatCommand, false);
 }, MOTION_HEARTBEAT_MS);
 
 setConnected(false);
+setTelemetryState("尚未连接", false);
 updateCaptureStatus();
 updatePowerOutput();

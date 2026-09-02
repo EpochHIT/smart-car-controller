@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-build-info">
+  <link rel="stylesheet" href="styles.css?v=20260902-unified-control">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
@@ -28,7 +28,36 @@
     .file-input { display:none; }
     .capture-actions { grid-template-columns:repeat(4,1fr); }
     .compact-input { width:100%; min-height:40px; margin-top:5px; padding:8px 9px; border:1px solid var(--line); border-radius:9px; background:#071321; color:var(--text); }
-    @media(max-width:520px){ .seven-gears{grid-template-columns:repeat(4,1fr)} .capture-actions{grid-template-columns:repeat(2,1fr)} .battery-detail{grid-template-columns:1fr} }
+    .master-control-card { border-color:rgba(67,213,255,.38); background:linear-gradient(145deg,rgba(13,34,52,.96),rgba(5,18,31,.96)); }
+    .mode-switch { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:12px; }
+    .mode-button { min-height:46px; padding:8px 5px; border:1px solid var(--line); border-radius:10px; background:rgba(3,10,18,.64); color:var(--muted); font-weight:850; }
+    .mode-button.selected { border-color:var(--cyan); background:rgba(67,213,255,.14); color:var(--cyan); box-shadow:inset 0 0 0 1px rgba(67,213,255,.15); }
+    .mode-panel { margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:11px; background:rgba(3,10,18,.42); }
+    .mode-panel[hidden] { display:none; }
+    .mode-panel>p { margin:0 0 8px; color:var(--muted); font-size:.76rem; line-height:1.5; }
+    .control-summary { display:flex; justify-content:space-between; gap:10px; margin-top:10px; padding:10px 12px; border-radius:10px; background:rgba(67,213,255,.08); color:var(--muted); font-size:.75rem; }
+    .control-summary strong { color:var(--text); text-align:right; }
+    .telemetry-state { margin-top:8px; color:var(--orange); font-size:.72rem; }
+    .telemetry-state.ready { color:var(--green); }
+    .master-actions { display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-top:10px; }
+    .master-actions .button { min-height:52px; font-size:1rem; }
+    @media(max-width:520px){
+      .connection-state{display:none}
+      .connect-row{grid-template-columns:1fr 1fr}
+      .connection-label{grid-column:1/-1}
+      #connectButton,#disconnectButton{width:100%}
+      .device-name{grid-column:1}
+      .battery-pill{grid-column:2}
+      .seven-gears{grid-template-columns:repeat(4,minmax(0,1fr))}
+      .capture-actions{grid-template-columns:repeat(2,1fr)}
+      .battery-detail{grid-template-columns:1fr}
+      .mode-switch{grid-template-columns:repeat(3,minmax(0,1fr))}
+      .mode-button{padding:8px 3px;font-size:.76rem}
+      .control-summary{display:grid;grid-template-columns:1fr}
+      .control-summary strong{text-align:left;overflow-wrap:anywhere}
+      .master-actions{grid-template-columns:1fr}
+    }
+    @media(max-width:360px){.mode-switch{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -52,20 +81,44 @@
         <span class="battery-pill">电压 <strong id="voltageValue">--</strong></span>
       </div>
       <p class="message" id="firmwareBuildBadge">固件编译：连接后读取</p>
-      <button class="button stop-button full requires-connection" id="globalStopButton" type="button" disabled>■ 全局停车</button>
       <p class="message" id="message" aria-live="polite">连接后自动记录四路 ADC；也可以离线读取 CSV。</p>
     </section>
 
     <section class="card battery-warning" id="batteryWarning" hidden>⚠ 电池电压 <strong id="batteryWarningValue">--</strong> V，已到 10.5 V 或更低，请停车检查电池。</section>
 
+    <section class="card master-control-card">
+      <div class="section-title"><h2>统一电机控制</h2><span>先选模式，再启动</span></div>
+      <div class="mode-switch" id="runModeSwitch">
+        <button class="mode-button selected" data-mode="track" type="button">循迹跑车</button>
+        <button class="mode-button" data-mode="speed" type="button">双轮闭环测速</button>
+        <button class="mode-button" data-mode="pwm" type="button">架空 PWM 测试</button>
+      </div>
+      <div class="mode-panel" data-mode-panel="track">
+        <p><strong>赛道运行：</strong>选择基础轮速，四路电磁传感器负责循迹和十字识别。</p>
+        <div class="seven-gears" id="trackGears"><button class="selected" data-speed="4000">40</button><button data-speed="4300">43</button><button data-speed="4600">46</button><button data-speed="4900">49</button><button data-speed="5200">52</button><button data-speed="5500">55</button><button data-speed="5800">58</button></div>
+      </div>
+      <div class="mode-panel" data-mode-panel="speed" hidden>
+        <p><strong>轮速 PD 调试：</strong>两轮使用相同目标，不使用电磁循迹修正。</p>
+        <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
+      </div>
+      <div class="mode-panel" data-mode-panel="pwm" hidden>
+        <p><strong>只限车轮架空：</strong>开环输出不做轮速闭环，用于测最高转速；必须保留物理断电手段。</p>
+        <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
+        <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
+      </div>
+      <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · 目标 40 边沿/20 ms</strong></div>
+      <p class="telemetry-state" id="telemetryState">遥测：尚未连接</p>
+      <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>▶ 启动电机</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
+    </section>
+
     <nav class="tabs" aria-label="功能导航">
-      <button class="tab-button active" data-tab="sensor" type="button">巡线</button>
-      <button class="tab-button" data-tab="motor" type="button">电机与轮速</button>
+      <button class="tab-button active" data-tab="sensor" type="button">巡线数据</button>
+      <button class="tab-button" data-tab="motor" type="button">电机数据</button>
     </nav>
 
     <section class="tab-panel active" data-panel="sensor">
       <section class="card track-control-card">
-        <div class="section-title"><h2>巡线控制</h2><span id="trackModeValue">STOP</span></div>
+        <div class="section-title"><h2>巡线状态</h2><span id="trackModeValue">STOP</span></div>
         <div class="track-state-hero">
           <div><small>线路状态</small><strong id="trackStateValue">待读取</strong></div>
           <div><small>十字事件</small><strong id="crossValue">否</strong></div>
@@ -76,11 +129,7 @@
           <div><small>PD 修正 ×100</small><strong id="trackCorrection">--</strong></div>
           <div><small>右轮目标</small><strong id="trackTargetRight">--</strong></div>
         </div>
-        <div class="seven-gears" id="trackGears" aria-label="循迹目标档位">
-          <button class="selected" data-speed="4000">40</button><button data-speed="4300">43</button><button data-speed="4600">46</button><button data-speed="4900">49</button><button data-speed="5200">52</button><button data-speed="5500">55</button><button data-speed="5800">58</button>
-        </div>
-        <p class="track-speed-hint">单位：编码器 A 相双边沿/20 ms。从 40 开始调，58 为当前共同顶档附近。</p>
-        <div class="button-grid two-buttons track-run-buttons"><button class="button primary requires-connection" id="trackStartButton" disabled>▶ 开始循迹</button><button class="button stop-button requires-connection" id="trackStopButton" disabled>■ 结束循迹</button></div>
+        <p class="track-speed-hint">这里只显示传感器和循迹状态；运行方式与目标速度统一在页面顶部设置。</p>
       </section>
 
       <section class="card line-card">
@@ -130,20 +179,6 @@
         <div class="data-grid four" style="margin-top:7px"><div><small>左目标</small><strong id="motorTargetLeft">--</strong></div><div><small>右目标</small><strong id="motorTargetRight">--</strong></div><div><small>左累计</small><strong id="totalLeft">--</strong></div><div><small>右累计</small><strong id="totalRight">--</strong></div></div>
       </section>
 
-      <section class="card">
-        <div class="section-title"><h2>闭环轮速档位</h2><span>40 → 58</span></div>
-        <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
-        <div class="button-grid two-buttons track-run-buttons"><button class="button primary requires-connection" id="gearStartButton" disabled>开始闭环测速</button><button class="button stop-button requires-connection" id="motorStopButton" disabled>■ 停车</button></div>
-      </section>
-
-      <details class="card fold-card">
-        <summary>架空开环 PWM 测试</summary>
-        <p class="group-hint waveform-hint"><strong>高速测试：</strong>100% 对应定时器真实满量程 PWM 2133；旧测试上限 PWM 900 约为 42%。请从低值逐级增加，必须架空车轮并保留物理断电手段。遥测丢失 250 ms、页面退到后台或编码器异常时会请求停车，固件失联 400 ms 自动归零电机输出。</p>
-        <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
-        <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
-        <div class="button-grid two-buttons"><button class="button primary requires-connection" id="pwmStartButton" disabled>开始 PWM</button><button class="button ghost requires-connection" id="pwmFullButton" disabled>设为 100%（不启动）</button></div>
-      </details>
-
       <details class="card fold-card">
         <summary>RPM 与串口诊断</summary>
         <div class="parameter-grid" style="padding-top:12px"><label>每圈 A 相双边沿数<input class="param-input" id="edgesPerRev" type="number" min="1" step="1" value="40"></label><label>编码器故障<input class="param-input" id="encoderFault" value="--" readonly></label></div>
@@ -151,6 +186,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-build-info"></script>
+  <script src="app.js?v=20260902-unified-control"></script>
 </body>
 </html>
