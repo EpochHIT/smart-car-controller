@@ -7,6 +7,7 @@ const MOTION_HEARTBEAT_MS = 100;
 const TELEMETRY_TIMEOUT_MS = 250;
 const ADC_MAX = 4095;
 const ADC_VREF = 3.3;
+const BATTERY_DIVIDER = 11;
 const LOW_BATTERY_V = 10.5;
 const BATTERY_RESET_V = 10.8;
 const HISTORY_LIMIT = 2000;
@@ -31,6 +32,7 @@ let selectedTrackSpeed = 4000;
 let selectedMotorGear = 1;
 let latestBatteryRaw = NaN;
 let lowBatteryNotified = false;
+let buildInfoConfirmed = false;
 let sessionNumber = 1;
 let sessionStartedAt = Date.now();
 let sensorHistory = [];
@@ -116,18 +118,20 @@ function updateSensorMeter(key, raw) {
 }
 
 function batteryVoltage(raw) {
-  const ratio = Math.max(1, numberValue(ui.dividerRatio.value) || 5);
+  const ratio = Math.max(1, numberValue(ui.dividerRatio.value) || BATTERY_DIVIDER);
   return raw / ADC_MAX * ADC_VREF * ratio;
 }
 
 function updateBattery(raw) {
   if (!Number.isFinite(raw) || raw <= 0) return NaN;
   latestBatteryRaw = raw;
+  const adcVoltage = raw / ADC_MAX * ADC_VREF;
   const voltage = batteryVoltage(raw);
   ui.voltageValue.textContent = `${voltage.toFixed(2)} V`;
   ui.voltageValue.classList.toggle("battery-low", voltage <= LOW_BATTERY_V);
   ui.voltageValue.classList.toggle("battery-good", voltage > LOW_BATTERY_V);
   ui.batteryRawValue.textContent = raw;
+  ui.batteryAdcVoltage.textContent = `${adcVoltage.toFixed(3)} V`;
   ui.batteryDetailVoltage.textContent = `${voltage.toFixed(2)} V`;
   ui.batteryWarningValue.textContent = voltage.toFixed(2);
   ui.batteryWarning.hidden = voltage > LOW_BATTERY_V;
@@ -287,6 +291,19 @@ function parseTelemetry(line) {
 
 function handleLine(line) {
   if (!line) return;
+  if (line.startsWith("INFO ")) {
+    const match = line.match(/^INFO fw=(\S+) built=(.+)$/);
+    const firmware = match?.[1] || "未知固件";
+    const built = match?.[2] || line.slice(5);
+    ui.firmwareBuildBadge.textContent = `固件编译：${built}`;
+    addLog(`< ${line}`);
+    if (!buildInfoConfirmed) {
+      buildInfoConfirmed = true;
+      const confirmed = window.confirm(`已连接 ${firmware}\n固件编译时间：${built}\n\n请确认这是准备测试的最新固件。`);
+      setMessage(confirmed ? `已确认固件编译时间：${built}` : "尚未确认固件版本，请勿启动小车", !confirmed);
+    }
+    return;
+  }
   const telemetryLine = parseTelemetry(line);
   if (!telemetryLine && line !== "PONG") addLog(`< ${line}`);
   if (line.includes("encoder_fault") || line.includes("track_lost") || line.includes("watchdog")) {
@@ -330,9 +347,12 @@ async function connectSerial() {
     setConnected(true);
     lastTelemetryAt = Date.now();
     safetyStopLatched = false;
+    buildInfoConfirmed = false;
+    ui.firmwareBuildBadge.textContent = "固件编译：正在读取…";
     setMessage("已连接，正在以 50 ms 周期自动记录数据");
     addLog("串口已连接：57600 8N1");
     readLoop();
+    await send("INFO");
     await send("TELEM 50");
     await send("PING");
   } catch (error) {

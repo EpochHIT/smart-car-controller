@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-mspm0">
+  <link rel="stylesheet" href="styles.css?v=20260902-build-info">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .battery-warning { border-color: rgba(255,99,120,.62); background: rgba(112,20,38,.88); color: #fff; font-weight: 850; }
@@ -21,14 +21,14 @@
     .seven-gears { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-top:10px; }
     .seven-gears button { min-width:0; min-height:36px; padding:5px 2px; border:1px solid var(--line); border-radius:8px; background:rgba(3,10,18,.55); color:var(--muted); font-weight:850; }
     .seven-gears button.selected { border-color:rgba(67,213,255,.45); background:rgba(67,213,255,.13); color:var(--cyan); }
-    .battery-detail { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .battery-detail { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
     .battery-detail>div { padding:12px; border:1px solid var(--line); border-radius:11px; background:rgba(3,11,20,.42); text-align:center; }
     .battery-detail small { display:block; color:var(--muted); }
     .battery-detail strong { display:block; margin-top:4px; color:var(--cyan); font:900 1.35rem ui-monospace,Consolas,monospace; }
     .file-input { display:none; }
     .capture-actions { grid-template-columns:repeat(4,1fr); }
     .compact-input { width:100%; min-height:40px; margin-top:5px; padding:8px 9px; border:1px solid var(--line); border-radius:9px; background:#071321; color:var(--text); }
-    @media(max-width:520px){ .seven-gears{grid-template-columns:repeat(4,1fr)} .capture-actions{grid-template-columns:repeat(2,1fr)} }
+    @media(max-width:520px){ .seven-gears{grid-template-columns:repeat(4,1fr)} .capture-actions{grid-template-columns:repeat(2,1fr)} .battery-detail{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
@@ -51,6 +51,7 @@
         <strong class="device-name" id="deviceName">MSPM0G3507 天猛星</strong>
         <span class="battery-pill">电压 <strong id="voltageValue">--</strong></span>
       </div>
+      <p class="message" id="firmwareBuildBadge">固件编译：连接后读取</p>
       <button class="button stop-button full requires-connection" id="globalStopButton" type="button" disabled>■ 全局停车</button>
       <p class="message" id="message" aria-live="polite">连接后自动记录四路 ADC；也可以离线读取 CSV。</p>
     </section>
@@ -115,9 +116,9 @@
 
       <details class="card fold-card">
         <summary>电池电压换算</summary>
-        <div class="battery-detail" style="margin-top:12px"><div><small>PA27 ADC 原始值</small><strong id="batteryRawValue">--</strong></div><div><small>计算电压</small><strong id="batteryDetailVoltage">-- V</strong></div></div>
-        <label class="group-hint" style="display:block;margin-top:12px">分压倍率<input class="compact-input" id="dividerRatio" type="number" min="1" step="0.01" value="5.00"></label>
-        <p class="group-hint">电压 = ADC ÷ 4095 × 3.3 × 分压倍率；提醒判断完全在网页端执行。</p>
+        <div class="battery-detail" style="margin-top:12px"><div><small>PA27 ADC 原始值</small><strong id="batteryRawValue">--</strong></div><div><small>PA27 脚电压</small><strong id="batteryAdcVoltage">-- V</strong></div><div><small>电池电压</small><strong id="batteryDetailVoltage">-- V</strong></div></div>
+        <label class="group-hint" style="display:block;margin-top:12px">硬件分压倍率（手册为 1/11）<input class="compact-input" id="dividerRatio" type="number" min="1" step="0.01" value="11.00"></label>
+        <p class="group-hint">D153B/D24A 手册明确使用 10 kΩ + 1 kΩ 分压。电池电压 = ADC ÷ 4095 × 3.3 × 11；10.5 V 提醒仍由网页判断。</p>
       </details>
     </section>
 
@@ -150,6 +151,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-highspeed-pd"></script>
+  <script src="app.js?v=20260902-build-info"></script>
 </body>
 </html>
