@@ -7,16 +7,16 @@ const ADC_MAX = 4095;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
 const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
-const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v4-sensor-fit";
+const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v5-ratio-low-gears";
 const DEFAULT_GEAR_PROFILES = [
   null,
   { target: 130, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 120, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 110, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
+  { target: 115, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
   { target: 100, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 90, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 80, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 70, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 }
+  { target: 85, speedKp: 4, speedKi: 0, trackKp: 0.95, trackKd: 1.20 },
+  { target: 70, speedKp: 4, speedKi: 0, trackKp: 0.85, trackKd: 1.20 },
+  { target: 55, speedKp: 4, speedKi: 0, trackKp: 0.75, trackKd: 1.20 },
+  { target: 40, speedKp: 4, speedKi: 0, trackKp: 0.65, trackKd: 1.20 }
 ];
 const sensorRanges = {
   lt: [700, 2100],
@@ -346,6 +346,8 @@ function captureTelemetry(v, derived) {
     ll_raw: v.ll ?? "",
     rl_raw: v.rl ?? "",
     rt_raw: v.rt ?? "",
+    calibrate_left: v.calL ?? "",
+    calibrate_right: v.calR ?? "",
     lt_pct: derived.ltPct,
     ll_pct: derived.llPct,
     rl_pct: derived.rlPct,
@@ -721,6 +723,7 @@ const csvColumns = [
   ["循迹P", "track_kp"], ["循迹D", "track_kd"],
   ["电池ADC_PA27", "battery_raw"], ["电池电压V", "battery_v"],
   ["左横_PA26", "lt_raw"], ["左竖_PA25", "ll_raw"], ["右竖_PB19", "rl_raw"], ["右横_PB18", "rt_raw"],
+  ["启动标定左横", "calibrate_left"], ["启动标定右横", "calibrate_right"],
   ["左横相对值", "lt_pct"], ["左竖相对值", "ll_pct"], ["右竖相对值", "rl_pct"], ["右横相对值", "rt_pct"],
   ["误差x100", "error_x100"], ["十字", "cross"], ["线路状态", "state"],
   ["左目标x100", "target_left_x100"], ["右目标x100", "target_right_x100"],
@@ -822,6 +825,8 @@ function importCsv(text, fileName) {
       battery_raw: firstValue(source, ["电池ADC_PA27", "battery_raw"]),
       battery_v: firstValue(source, ["电池电压V", "battery_v"]),
       lt_raw: lt, ll_raw: ll, rt_raw: rt, rl_raw: rl,
+      calibrate_left: firstValue(source, ["启动标定左横", "calibrate_left"]),
+      calibrate_right: firstValue(source, ["启动标定右横", "calibrate_right"]),
       lt_pct: firstValue(source, ["左横相对值", "lt_pct", "left_horizontal_pct"]),
       ll_pct: firstValue(source, ["左竖相对值", "ll_pct", "left_vertical_pct"]),
       rt_pct: firstValue(source, ["右横相对值", "rt_pct", "right_horizontal_pct"]),
