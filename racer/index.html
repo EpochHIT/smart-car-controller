@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260902-speed-chart">
+  <link rel="stylesheet" href="styles.css?v=20260903-gear-profiles">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .speed-hero { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
@@ -15,8 +15,10 @@
     .speed-hero strong { display:block; margin:4px 0; color:var(--cyan); font:900 clamp(2rem,10vw,3.4rem)/1 ui-monospace,Consolas,monospace; }
     .speed-hero span { color:var(--muted); font-size:.7rem; }
     .seven-gears { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-top:10px; }
-    .seven-gears button { min-width:0; min-height:36px; padding:5px 2px; border:1px solid var(--line); border-radius:8px; background:rgba(3,10,18,.55); color:var(--muted); font-weight:850; }
+    .seven-gears button { min-width:0; min-height:50px; padding:5px 2px; border:1px solid var(--line); border-radius:8px; background:rgba(3,10,18,.55); color:var(--muted); font-weight:850; }
     .seven-gears button.selected { border-color:rgba(67,213,255,.45); background:rgba(67,213,255,.13); color:var(--cyan); }
+    .seven-gears button strong,.seven-gears button small{display:block}
+    .seven-gears button small{margin-top:2px;color:inherit;font-size:.62rem;font-weight:700}
     .battery-detail { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
     .battery-detail>div { padding:12px; border:1px solid var(--line); border-radius:11px; background:rgba(3,11,20,.42); text-align:center; }
     .battery-detail small { display:block; color:var(--muted); }
@@ -42,6 +44,15 @@
     .telemetry-state.ready { color:var(--green); }
     .master-actions { display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-top:10px; }
     .master-actions .button { min-height:52px; font-size:1rem; }
+    .profile-editor{margin-top:10px;padding:12px;border:1px solid rgba(179,140,255,.28);border-radius:11px;background:rgba(11,16,31,.6)}
+    .profile-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:5px}
+    .profile-title strong{font-size:.84rem}.profile-title span{color:var(--violet);font-size:.67rem;font-weight:800}
+    .profile-help{margin:0 0 10px;color:var(--muted);font-size:.7rem;line-height:1.5}
+    .profile-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:7px}
+    .profile-grid label{min-width:0;color:var(--muted);font-size:.64rem;font-weight:750}
+    .profile-grid input{width:100%;min-height:39px;margin-top:4px;padding:7px;border:1px solid var(--line);border-radius:8px;background:#071321;color:var(--text);font:800 .78rem ui-monospace,Consolas,monospace}
+    .profile-actions{display:grid;grid-template-columns:2fr 1fr;gap:7px;margin-top:9px}
+    .profile-state{margin:8px 1px 0;color:var(--muted);font-size:.67rem}.profile-state.dirty{color:var(--orange)}
     @media(max-width:520px){
       .connection-state{display:none}
       .connect-row{grid-template-columns:1fr 1fr}
@@ -56,6 +67,9 @@
       .control-summary{display:grid;grid-template-columns:1fr}
       .control-summary strong{text-align:left;overflow-wrap:anywhere}
       .master-actions{grid-template-columns:1fr}
+      .profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .profile-grid label:first-child{grid-column:1/-1}
+      .profile-actions{grid-template-columns:1fr}
     }
     @media(max-width:360px){.mode-switch{grid-template-columns:1fr}}
   </style>
@@ -90,8 +104,8 @@
         <button class="mode-button" data-mode="test" type="button">双轮测速</button>
       </div>
       <div class="mode-panel" data-mode-panel="track">
-        <p><strong>赛道运行：</strong>选择基础轮速，四路电磁传感器负责循迹和十字识别。</p>
-        <div class="seven-gears" id="trackGears"><button class="selected" data-speed="4000">40</button><button data-speed="4300">43</button><button data-speed="4600">46</button><button data-speed="4900">49</button><button data-speed="5200">52</button><button data-speed="5500">55</button><button data-speed="5800">58</button></div>
+        <p><strong>赛道运行：</strong>G1 为高速档，依次降低到 G7 中速档；第一次请从 G7 开始。四路电磁传感器负责循迹和十字识别。</p>
+        <div class="seven-gears" id="trackGears"></div>
       </div>
       <div class="mode-panel" data-mode-panel="test" hidden>
         <p><strong>双轮测速：</strong>测电机极限先用开环 PWM；编码器确认正常后，再用闭环 PD 检查目标轮速。</p>
@@ -103,10 +117,23 @@
         </div>
         <div class="test-control-panel" data-control-panel="speed" hidden>
           <p><strong>轮速 PD：</strong>两轮使用相同编码器目标，不使用电磁循迹修正。</p>
-          <div class="seven-gears" id="motorGears"><button class="selected" data-gear="1">40</button><button data-gear="2">43</button><button data-gear="3">46</button><button data-gear="4">49</button><button data-gear="5">52</button><button data-gear="6">55</button><button data-gear="7">58</button></div>
+          <div class="seven-gears" id="motorGears"></div>
         </div>
       </div>
-      <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · 目标 40 边沿/20 ms</strong></div>
+      <div class="profile-editor">
+        <div class="profile-title"><strong id="profileTitle">G7 独立 PID 档案</strong><span>无积分 I</span></div>
+        <p class="profile-help">目标单位是编码器边沿/20 ms。速度 P/D 稳定两轮转速；循迹 P/D 只修正左右轮速差。每档单独保存，停车时才能同步。</p>
+        <div class="profile-grid">
+          <label>目标轮速<input id="profileTarget" type="number" min="40" max="150" step="1"></label>
+          <label>速度 P<input id="profileSpeedKp" type="number" min="0" max="20" step="0.05"></label>
+          <label>速度 D<input id="profileSpeedKd" type="number" min="0" max="20" step="0.05"></label>
+          <label>循迹 P<input id="profileTrackKp" type="number" min="0" max="2" step="0.01"></label>
+          <label>循迹 D<input id="profileTrackKd" type="number" min="0" max="2" step="0.01"></label>
+        </div>
+        <div class="profile-actions"><button class="button primary" id="saveProfileButton" type="button">保存 G7 并同步</button><button class="button ghost" id="readProfilesButton" type="button">读取固件</button></div>
+        <p class="profile-state" id="profileState">参数保存在本浏览器；连接后自动同步给固件。</p>
+      </div>
+      <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · G7 · 目标 70 边沿/20 ms</strong></div>
       <p class="telemetry-state" id="telemetryState">遥测：尚未连接</p>
       <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>先连接 BT04-A</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
     </section>
@@ -190,6 +217,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260902-speed-chart"></script>
+  <script src="app.js?v=20260903-gear-profiles"></script>
 </body>
 </html>
