@@ -169,14 +169,6 @@ async function saveSelectedProfile() {
   setMessage(`G${selectedGear} 参数已保存`);
 }
 
-async function syncAllProfilesToFirmware() {
-  if (!isConnected) return;
-  setProfileState("正在把 7 档参数同步给固件…");
-  for (let gear = 1; gear <= 7; gear += 1) await send(profileCommand(gear), false);
-  profileReadPending = true;
-  await send("PROFILES", false);
-}
-
 function applyFirmwareProfile(line) {
   const values = parseTelemetryValues(line);
   const gear = numberValue(values.gear);
@@ -511,11 +503,12 @@ async function connectSerial() {
         setTelemetryState("未收到单片机返回", false);
         setMessage("BT04-A 已连接，但单片机没有返回数据：请烧录最新固件，并确认模块为 57600、TX/RX 交叉连接", true);
       }
+      if ((port === connectedPort) && ui.firmwareBuildBadge.textContent.includes("正在读取")) {
+        ui.firmwareBuildBadge.textContent = "固件编译：未返回（不影响启动）";
+      }
     }, 1200);
-    await send("INFO");
-    await send("TELEM 50");
-    await send("STATUS", false);
-    await syncAllProfilesToFirmware();
+    await new Promise((resolve) => window.setTimeout(resolve, 350));
+    await send("TELEM 50", false);
   } catch (error) {
     port = undefined;
     setConnected(false);
@@ -909,12 +902,14 @@ function updatePowerOutput() {
   updateControlSummary();
 }
 ui.powerRange.addEventListener("input", updatePowerOutput);
-ui.motorStartButton.addEventListener("click", () => {
+ui.motorStartButton.addEventListener("click", async () => {
   if (selectedRunMode === "track") {
+    await send(profileCommand(selectedGear), false);
     if (armMotion(`TRACK ${selectedGear}`, "track", `已启动循迹：G${selectedGear}，目标 ${gearProfiles[selectedGear].target} 边沿/20 ms`)) addHistoryEvent("START");
     return;
   }
   if (selectedTestControl === "speed") {
+    await send(profileCommand(selectedGear), false);
     armMotion(`GEAR ${selectedGear}`, "speed", `双轮闭环测速已启动：G${selectedGear}`);
     return;
   }
