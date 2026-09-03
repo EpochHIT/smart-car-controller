@@ -7,15 +7,15 @@ const ADC_MAX = 4095;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
 const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
-const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v6-lap11-fit";
+const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v7-measured-pd";
 const DEFAULT_GEAR_PROFILES = [
   null,
   { target: 100, speedKp: 4, speedKi: 0, trackKp: 1.75, trackKd: 1.20 },
   { target: 90, speedKp: 4, speedKi: 0, trackKp: 1.58, trackKd: 1.20 },
   { target: 80, speedKp: 4, speedKi: 0, trackKp: 1.40, trackKd: 1.20 },
   { target: 70, speedKp: 4, speedKi: 0, trackKp: 1.23, trackKd: 1.20 },
-  { target: 60, speedKp: 4, speedKi: 0, trackKp: 1.05, trackKd: 1.20 },
-  { target: 50, speedKp: 4, speedKi: 0, trackKp: 0.88, trackKd: 1.20 },
+  { target: 60, speedKp: 4, speedKi: 0, trackKp: 0.55, trackKd: 3.00 },
+  { target: 50, speedKp: 4, speedKi: 0, trackKp: 0.55, trackKd: 1.20 },
   { target: 40, speedKp: 4, speedKi: 0, trackKp: 0.70, trackKd: 1.20 }
 ];
 const sensorRanges = {
@@ -40,6 +40,7 @@ let selectedGear = 7;
 let gearProfiles = loadGearProfiles();
 let profileDirty = false;
 let profileReadPending = false;
+let pendingProfileGear = 0;
 let buildInfoConfirmed = false;
 let sessionNumber = 1;
 let sessionStartedAt = Date.now();
@@ -57,7 +58,7 @@ function profileIsValid(profile) {
     Number.isFinite(profile.speedKp) && profile.speedKp >= 0 && profile.speedKp <= 20 &&
     Number.isFinite(profile.speedKi) && profile.speedKi >= 0 && profile.speedKi <= 2 &&
     Number.isFinite(profile.trackKp) && profile.trackKp >= 0 && profile.trackKp <= 2 &&
-    Number.isFinite(profile.trackKd) && profile.trackKd >= 0 && profile.trackKd <= 2;
+    Number.isFinite(profile.trackKd) && profile.trackKd >= 0 && profile.trackKd <= 5;
 }
 
 function cloneDefaultProfiles() {
@@ -143,16 +144,19 @@ function profileFromInputs() {
 
 async function saveSelectedProfile() {
   if (runningMode) {
+    setProfileState(`G${selectedGear} 未保存：请先停车`, true);
     setMessage("请先停车，再修改 PID 档案", true);
     return;
   }
   const profile = profileFromInputs();
   if (!profile) {
-    setMessage("档案参数超出范围：目标 40–150、速度 P 0–20、速度 I 0–2、循迹 P/D 0–2", true);
+    setProfileState(`G${selectedGear} 未保存：请检查输入范围`, true);
+    setMessage("档案参数超出范围：目标 40–150、速度 P 0–20、速度 I 0–2、循迹 P 0–2、循迹 D 0–5", true);
     return;
   }
   if ((selectedGear > 1 && profile.target > gearProfiles[selectedGear - 1].target) ||
       (selectedGear < 7 && profile.target < gearProfiles[selectedGear + 1].target)) {
+    setProfileState(`G${selectedGear} 未保存：目标轮速顺序不正确`, true);
     setMessage("轮速必须保持 G1 最高、依次降低到 G7", true);
     return;
   }
@@ -161,8 +165,10 @@ async function saveSelectedProfile() {
   profileDirty = false;
   renderGearButtons();
   if (isConnected) {
-    await send(profileCommand(selectedGear), false);
-    setProfileState(`G${selectedGear} 已保存，并已发送给固件`);
+    const gearBeingSaved = selectedGear;
+    pendingProfileGear = gearBeingSaved;
+    setProfileState(`G${gearBeingSaved} 已保存到浏览器，正在同步固件…`);
+    await send(profileCommand(gearBeingSaved), false);
   } else {
     setProfileState(`G${selectedGear} 已保存到本浏览器；连接后自动同步`);
   }
@@ -183,10 +189,16 @@ function applyFirmwareProfile(line) {
     addLog(`< 无法解析档案：${line}`);
     return;
   }
+  const confirmedPendingSave = gear === pendingProfileGear;
   gearProfiles[gear] = profile;
   persistGearProfiles();
   renderGearButtons();
   if (gear === selectedGear && !profileDirty) loadSelectedProfileInputs();
+  if (confirmedPendingSave) {
+    pendingProfileGear = 0;
+    if (gear === selectedGear) setProfileState(`G${gear} 已保存并由固件确认`);
+    setMessage(`G${gear} 参数已保存并同步`);
+  }
 }
 
 function addLog(text) {
@@ -428,6 +440,14 @@ function parseTelemetry(line) {
 
 function handleLine(line) {
   if (!line) return;
+  if (line.startsWith("ERR PROFILE")) {
+    const gear = pendingProfileGear;
+    pendingProfileGear = 0;
+    if (gear) setProfileState(`G${gear} 已保存到浏览器，但固件拒绝同步`, true);
+    setMessage(`档案同步失败：${line}`, true);
+    addLog(`< ${line}`);
+    return;
+  }
   if (line.startsWith("PROFILE ")) {
     applyFirmwareProfile(line);
     addLog(`< ${line}`);
@@ -868,7 +888,6 @@ function startNewSession() {
 ui.connectButton.addEventListener("click", connectSerial);
 ui.disconnectButton.addEventListener("click", disconnectSerial);
 ui.motorStopButton.addEventListener("click", stopCar);
-document.querySelectorAll(".tab-button").forEach((button) => button.addEventListener("click", () => selectTab(button.dataset.tab)));
 
 function updateControlSummary() {
   const target = gearProfiles[selectedGear].target;
@@ -886,6 +905,7 @@ function selectRunMode(mode) {
   selectedRunMode = mode;
   document.querySelectorAll("#runModeSwitch .mode-button").forEach((button) => button.classList.toggle("selected", button.dataset.mode === mode));
   document.querySelectorAll("[data-mode-panel]").forEach((panel) => { panel.hidden = panel.dataset.modePanel !== mode; });
+  selectTab(mode === "track" ? "sensor" : "motor");
   updateControlSummary();
   updateMotorStartAvailability();
 }

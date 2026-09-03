@@ -8,7 +8,7 @@
   <title>MSPM0 电磁赛车控制台</title>
   <link rel="stylesheet" href="styles.css?v=20260903-speed-pi">
   <style>
-    .tabs { grid-template-columns: repeat(2, 1fr); }
+    .app-shell { padding-bottom:calc(104px + env(safe-area-inset-bottom)); }
     .speed-hero { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
     .speed-hero>div { padding:18px 8px; border:1px solid var(--line); border-radius:13px; background:rgba(3,11,20,.42); text-align:center; }
     .speed-hero small { display:block; color:var(--muted); }
@@ -42,8 +42,9 @@
     .control-summary strong { color:var(--text); text-align:right; }
     .telemetry-state { margin-top:8px; color:var(--orange); font-size:.72rem; }
     .telemetry-state.ready { color:var(--green); }
-    .master-actions { display:grid; grid-template-columns:2fr 1fr; gap:8px; margin-top:10px; }
-    .master-actions .button { min-height:52px; font-size:1rem; }
+    .drive-dock { position:fixed; left:0; right:0; bottom:0; z-index:100; padding:10px max(12px,env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left)); border-top:1px solid rgba(67,213,255,.28); background:rgba(4,12,21,.94); box-shadow:0 -12px 32px rgba(0,0,0,.48); backdrop-filter:blur(16px); }
+    .drive-dock-inner { width:min(696px,100%); margin:0 auto; display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:9px; }
+    .drive-dock .button { min-height:56px; font-size:1rem; }
     .profile-editor{margin-top:10px;padding:12px;border:1px solid rgba(179,140,255,.28);border-radius:11px;background:rgba(11,16,31,.6)}
     .profile-title{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:5px}
     .profile-title strong{font-size:.84rem}.profile-title span{color:var(--violet);font-size:.67rem;font-weight:800}
@@ -66,7 +67,6 @@
       .mode-button{padding:8px 3px;font-size:.76rem}
       .control-summary{display:grid;grid-template-columns:1fr}
       .control-summary strong{text-align:left;overflow-wrap:anywhere}
-      .master-actions{grid-template-columns:1fr}
       .profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       .profile-grid label:first-child{grid-column:1/-1}
       .profile-actions{grid-template-columns:1fr}
@@ -128,20 +128,14 @@
           <label>速度 P<input id="profileSpeedKp" type="number" min="0" max="20" step="0.05"></label>
           <label>速度 I<input id="profileSpeedKi" type="number" min="0" max="2" step="0.01"></label>
           <label>循迹 P<input id="profileTrackKp" type="number" min="0" max="2" step="0.01"></label>
-          <label>循迹 D<input id="profileTrackKd" type="number" min="0" max="2" step="0.01"></label>
+          <label>循迹 D<input id="profileTrackKd" type="number" min="0" max="5" step="0.01"></label>
         </div>
         <div class="profile-actions"><button class="button primary" id="saveProfileButton" type="button">保存 G7 并同步</button><button class="button ghost" id="readProfilesButton" type="button">读取固件</button></div>
         <p class="profile-state" id="profileState">参数保存在本浏览器；连接后自动同步给固件。</p>
       </div>
       <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · G7 · 目标 40 边沿/20 ms</strong></div>
       <p class="telemetry-state" id="telemetryState">数据：尚未连接</p>
-      <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>先连接 BT04-A</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
     </section>
-
-    <nav class="tabs" aria-label="功能导航">
-      <button class="tab-button active" data-tab="sensor" type="button">巡线数据</button>
-      <button class="tab-button" data-tab="motor" type="button">电机数据</button>
-    </nav>
 
     <section class="tab-panel active" data-panel="sensor">
       <section class="card track-control-card">
@@ -217,6 +211,9 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260903-speed-pi"></script>
+  <aside class="drive-dock" aria-label="常驻电机控制">
+    <div class="drive-dock-inner"><button class="button primary" id="motorStartButton" type="button" disabled>先连接 BT04-A</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
+  </aside>
+  <script src="app.js?v=20260903-mode-dock"></script>
 </body>
 </html>
