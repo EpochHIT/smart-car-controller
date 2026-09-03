@@ -88,7 +88,7 @@
 
     <section class="card quick-panel">
       <div class="connect-row">
-        <div class="connection-label"><span>蓝牙串口</span><strong>BT04-A</strong><small>57600 · 8N1 · 遥测 50 ms</small></div>
+        <div class="connection-label"><span>蓝牙串口</span><strong>BT04-A</strong><small>57600 · 8N1 · 数据 50 ms</small></div>
         <button class="button primary" id="connectButton" type="button">连接</button>
         <button class="button ghost" id="disconnectButton" type="button" disabled>断开</button>
         <strong class="device-name" id="deviceName">MSPM0G3507 天猛星</strong>
@@ -111,7 +111,7 @@
         <p><strong>双轮测速：</strong>测电机极限先用开环 PWM；编码器确认正常后，再用闭环 PI 检查目标轮速。</p>
         <div class="test-type-switch" id="speedControlSwitch"><button class="test-type-button selected" data-control="pwm" type="button">开环 PWM · 测极限</button><button class="test-type-button" data-control="speed" type="button">闭环 PI · 稳轮速</button></div>
         <div class="test-control-panel" data-control-panel="pwm">
-          <p><strong>只限车轮架空：</strong>滑块直接决定 PWM，不做轮速闭环；编码器只测量、不触发堵转故障。通信中断仍会停车。</p>
+          <p><strong>只限车轮架空：</strong>滑块直接决定 PWM，不做轮速闭环；编码器只负责测量。</p>
           <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
           <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
         </div>
@@ -134,7 +134,7 @@
         <p class="profile-state" id="profileState">参数保存在本浏览器；连接后自动同步给固件。</p>
       </div>
       <div class="control-summary"><span>按下启动后执行</span><strong id="selectedControlSummary">循迹 · G7 · 目标 70 边沿/20 ms</strong></div>
-      <p class="telemetry-state" id="telemetryState">遥测：尚未连接</p>
+      <p class="telemetry-state" id="telemetryState">数据：尚未连接</p>
       <div class="master-actions"><button class="button primary" id="motorStartButton" type="button" disabled>先连接 BT04-A</button><button class="button stop-button requires-connection" id="motorStopButton" type="button" disabled>■ 立即停车</button></div>
     </section>
 
@@ -211,7 +211,7 @@
 
       <details class="card fold-card">
         <summary>RPM 与串口诊断</summary>
-        <div class="parameter-grid" style="padding-top:12px"><label>A 相双边沿/输出轴一圈<input class="param-input" id="edgesPerRev" type="number" min="1" step="0.001" value="530.634"></label><label>编码器故障<input class="param-input" id="encoderFault" value="--" readonly></label></div>
+        <div class="parameter-grid" style="padding-top:12px"><label>A 相双边沿/输出轴一圈<input class="param-input" id="edgesPerRev" type="number" min="1" step="0.001" value="530.634"></label></div>
         <p class="group-hint">当前按霍尔版计算：13 线 × 实际减速比 20.409 × A 相双边沿 2 = 530.634。约 60 边沿/20 ms 对应约 339 RPM。若实物是 500 线 GMR 版，此参数应改为 20409。</p>
         <pre class="log-window" id="diagnosticLog" style="height:190px"></pre>
       </details>
