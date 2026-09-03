@@ -9,16 +9,16 @@ const ADC_MAX = 4095;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
 const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
-const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v1";
+const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v2-speed-pi";
 const DEFAULT_GEAR_PROFILES = [
   null,
-  { target: 130, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 120, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 110, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 100, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 90, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 80, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 },
-  { target: 70, speedKp: 4, speedKd: 2, trackKp: 0.25, trackKd: 0.13 }
+  { target: 130, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 120, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 110, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 100, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 90, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 80, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 },
+  { target: 70, speedKp: 4, speedKi: 0.05, trackKp: 0.25, trackKd: 0.13 }
 ];
 const sensorRanges = {
   lt: [700, 3430],
@@ -61,7 +61,7 @@ function setMessage(text, error = false) {
 function profileIsValid(profile) {
   return profile && Number.isFinite(profile.target) && profile.target >= 40 && profile.target <= 150 &&
     Number.isFinite(profile.speedKp) && profile.speedKp >= 0 && profile.speedKp <= 20 &&
-    Number.isFinite(profile.speedKd) && profile.speedKd >= 0 && profile.speedKd <= 20 &&
+    Number.isFinite(profile.speedKi) && profile.speedKi >= 0 && profile.speedKi <= 2 &&
     Number.isFinite(profile.trackKp) && profile.trackKp >= 0 && profile.trackKp <= 2 &&
     Number.isFinite(profile.trackKd) && profile.trackKd >= 0 && profile.trackKd <= 2;
 }
@@ -92,7 +92,7 @@ function setProfileState(text, dirty = false) {
 
 function profileCommand(gear) {
   const profile = gearProfiles[gear];
-  return `PROFILE ${gear} ${Math.round(profile.target * 100)} ${Math.round(profile.speedKp * 100)} ${Math.round(profile.speedKd * 100)} ${Math.round(profile.trackKp * 100)} ${Math.round(profile.trackKd * 100)}`;
+  return `PROFILE ${gear} ${Math.round(profile.target * 100)} ${Math.round(profile.speedKp * 100)} ${Math.round(profile.speedKi * 100)} ${Math.round(profile.trackKp * 100)} ${Math.round(profile.trackKd * 100)}`;
 }
 
 function renderGearButtons() {
@@ -121,7 +121,7 @@ function loadSelectedProfileInputs() {
   const profile = gearProfiles[selectedGear];
   ui.profileTarget.value = profile.target;
   ui.profileSpeedKp.value = profile.speedKp;
-  ui.profileSpeedKd.value = profile.speedKd;
+  ui.profileSpeedKi.value = profile.speedKi;
   ui.profileTrackKp.value = profile.trackKp;
   ui.profileTrackKd.value = profile.trackKd;
   profileDirty = false;
@@ -140,7 +140,7 @@ function profileFromInputs() {
   const profile = {
     target: numberValue(ui.profileTarget.value),
     speedKp: numberValue(ui.profileSpeedKp.value),
-    speedKd: numberValue(ui.profileSpeedKd.value),
+    speedKi: numberValue(ui.profileSpeedKi.value),
     trackKp: numberValue(ui.profileTrackKp.value),
     trackKd: numberValue(ui.profileTrackKd.value)
   };
@@ -154,7 +154,7 @@ async function saveSelectedProfile() {
   }
   const profile = profileFromInputs();
   if (!profile) {
-    setMessage("档案参数超出范围：目标 40–150，速度 P/D 0–20，循迹 P/D 0–2", true);
+    setMessage("档案参数超出范围：目标 40–150、速度 P 0–20、速度 I 0–2、循迹 P/D 0–2", true);
     return;
   }
   if ((selectedGear > 1 && profile.target > gearProfiles[selectedGear - 1].target) ||
@@ -189,7 +189,7 @@ function applyFirmwareProfile(line) {
   const profile = {
     target: numberValue(values.speed) / 100,
     speedKp: numberValue(values.skp) / 100,
-    speedKd: numberValue(values.skd) / 100,
+    speedKi: numberValue(values.ski) / 100,
     trackKp: numberValue(values.tkp) / 100,
     trackKd: numberValue(values.tkd) / 100
   };
@@ -355,7 +355,7 @@ function captureTelemetry(v, derived) {
     mode: v.mode ?? "",
     gear: v.gear ?? "",
     speed_kp: Number.isFinite(numberValue(v.skp)) ? numberValue(v.skp) / 100 : "",
-    speed_kd: Number.isFinite(numberValue(v.skd)) ? numberValue(v.skd) / 100 : "",
+    speed_ki: Number.isFinite(numberValue(v.ski)) ? numberValue(v.ski) / 100 : "",
     track_kp: Number.isFinite(numberValue(v.tkp)) ? numberValue(v.tkp) / 100 : "",
     track_kd: Number.isFinite(numberValue(v.tkd)) ? numberValue(v.tkd) / 100 : "",
     battery_raw: v.bat ?? "",
@@ -798,7 +798,7 @@ function csvCell(value) {
 const csvColumns = [
   ["本地时间", "local_time"], ["UTC时间", "time_iso"], ["组号", "session"], ["经过毫秒", "elapsed_ms"],
   ["场景", "scene"], ["备注", "note"], ["记录类型", "record_type"], ["事件", "event_label"], ["device_ms", "device_ms"],
-  ["模式", "mode"], ["档位", "gear"], ["速度P", "speed_kp"], ["速度D", "speed_kd"],
+  ["模式", "mode"], ["档位", "gear"], ["速度P", "speed_kp"], ["速度I", "speed_ki"],
   ["循迹P", "track_kp"], ["循迹D", "track_kd"],
   ["电池ADC_PA27", "battery_raw"], ["电池电压V", "battery_v"],
   ["左横_PA26", "lt_raw"], ["左竖_PA25", "ll_raw"], ["右竖_PB19", "rl_raw"], ["右横_PB18", "rt_raw"],
@@ -1000,7 +1000,7 @@ ui.motorStartButton.addEventListener("click", () => {
   armMotion(`PWM ${pwm} ${pwm}`, "pwm", `架空 PWM 测试已启动：${pwm}/${PWM_MAX}`);
 });
 
-[ui.profileTarget, ui.profileSpeedKp, ui.profileSpeedKd, ui.profileTrackKp, ui.profileTrackKd].forEach((input) => {
+[ui.profileTarget, ui.profileSpeedKp, ui.profileSpeedKi, ui.profileTrackKp, ui.profileTrackKd].forEach((input) => {
   input.addEventListener("input", () => {
     profileDirty = true;
     setProfileState(`G${selectedGear} 有未保存修改`, true);

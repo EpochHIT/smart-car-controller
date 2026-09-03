@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <meta name="description" content="MSPM0G3507 电磁赛车循迹与编码器调试控制台">
   <title>MSPM0 电磁赛车控制台</title>
-  <link rel="stylesheet" href="styles.css?v=20260903-gear-profiles">
+  <link rel="stylesheet" href="styles.css?v=20260903-speed-pi">
   <style>
     .tabs { grid-template-columns: repeat(2, 1fr); }
     .speed-hero { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
@@ -108,25 +108,25 @@
         <div class="seven-gears" id="trackGears"></div>
       </div>
       <div class="mode-panel" data-mode-panel="test" hidden>
-        <p><strong>双轮测速：</strong>测电机极限先用开环 PWM；编码器确认正常后，再用闭环 PD 检查目标轮速。</p>
-        <div class="test-type-switch" id="speedControlSwitch"><button class="test-type-button selected" data-control="pwm" type="button">开环 PWM · 测极限</button><button class="test-type-button" data-control="speed" type="button">闭环 PD · 稳轮速</button></div>
+        <p><strong>双轮测速：</strong>测电机极限先用开环 PWM；编码器确认正常后，再用闭环 PI 检查目标轮速。</p>
+        <div class="test-type-switch" id="speedControlSwitch"><button class="test-type-button selected" data-control="pwm" type="button">开环 PWM · 测极限</button><button class="test-type-button" data-control="speed" type="button">闭环 PI · 稳轮速</button></div>
         <div class="test-control-panel" data-control-panel="pwm">
           <p><strong>只限车轮架空：</strong>滑块直接决定 PWM，不做轮速闭环；编码器只测量、不触发堵转故障。通信中断仍会停车。</p>
           <div class="range-row"><span>测试功率</span><output id="powerOutput">30% · PWM 640</output></div>
           <input class="range" id="powerRange" type="range" min="0" max="100" value="30">
         </div>
         <div class="test-control-panel" data-control-panel="speed" hidden>
-          <p><strong>轮速 PD：</strong>两轮使用相同编码器目标，不使用电磁循迹修正。</p>
+          <p><strong>轮速 PI：</strong>两轮使用相同编码器目标，不使用电磁循迹修正。</p>
           <div class="seven-gears" id="motorGears"></div>
         </div>
       </div>
       <div class="profile-editor">
-        <div class="profile-title"><strong id="profileTitle">G7 独立 PID 档案</strong><span>无积分 I</span></div>
-        <p class="profile-help">目标单位是编码器边沿/20 ms。速度 P/D 稳定两轮转速；循迹 P/D 只修正左右轮速差。每档单独保存，停车时才能同步。</p>
+        <div class="profile-title"><strong id="profileTitle">G7 独立 PID 档案</strong><span>速度 PI · 循迹 PD</span></div>
+        <p class="profile-help">目标单位是编码器边沿/20 ms。速度 P/I 稳定两轮转速；循迹 P/D 只修正左右轮速差。每档单独保存，停车时才能同步。</p>
         <div class="profile-grid">
           <label>目标轮速<input id="profileTarget" type="number" min="40" max="150" step="1"></label>
           <label>速度 P<input id="profileSpeedKp" type="number" min="0" max="20" step="0.05"></label>
-          <label>速度 D<input id="profileSpeedKd" type="number" min="0" max="20" step="0.05"></label>
+          <label>速度 I<input id="profileSpeedKi" type="number" min="0" max="2" step="0.01"></label>
           <label>循迹 P<input id="profileTrackKp" type="number" min="0" max="2" step="0.01"></label>
           <label>循迹 D<input id="profileTrackKd" type="number" min="0" max="2" step="0.01"></label>
         </div>
@@ -217,6 +217,6 @@
       </details>
     </section>
   </main>
-  <script src="app.js?v=20260903-gear-profiles"></script>
+  <script src="app.js?v=20260903-speed-pi"></script>
 </body>
 </html>
