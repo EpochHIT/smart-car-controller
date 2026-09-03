@@ -7,16 +7,16 @@ const ADC_MAX = 4095;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
 const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
-const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v5-ratio-low-gears";
+const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v6-lap11-fit";
 const DEFAULT_GEAR_PROFILES = [
   null,
-  { target: 130, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 115, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 100, speedKp: 4, speedKi: 0, trackKp: 1.00, trackKd: 1.20 },
-  { target: 85, speedKp: 4, speedKi: 0, trackKp: 0.95, trackKd: 1.20 },
-  { target: 70, speedKp: 4, speedKi: 0, trackKp: 0.85, trackKd: 1.20 },
-  { target: 55, speedKp: 4, speedKi: 0, trackKp: 0.75, trackKd: 1.20 },
-  { target: 40, speedKp: 4, speedKi: 0, trackKp: 0.65, trackKd: 1.20 }
+  { target: 100, speedKp: 4, speedKi: 0, trackKp: 1.75, trackKd: 1.20 },
+  { target: 90, speedKp: 4, speedKi: 0, trackKp: 1.58, trackKd: 1.20 },
+  { target: 80, speedKp: 4, speedKi: 0, trackKp: 1.40, trackKd: 1.20 },
+  { target: 70, speedKp: 4, speedKi: 0, trackKp: 1.23, trackKd: 1.20 },
+  { target: 60, speedKp: 4, speedKi: 0, trackKp: 1.05, trackKd: 1.20 },
+  { target: 50, speedKp: 4, speedKi: 0, trackKp: 0.88, trackKd: 1.20 },
+  { target: 40, speedKp: 4, speedKi: 0, trackKp: 0.70, trackKd: 1.20 }
 ];
 const sensorRanges = {
   lt: [700, 2100],
