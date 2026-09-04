@@ -2,7 +2,7 @@
 
 const $ = (id) => document.getElementById(id);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const EXPECTED_PROTOCOL_VERSION = 20;
+const EXPECTED_PROTOCOL_VERSION = 21;
 const SERIAL_BUFFER_SIZE = 4096;
 const BLUETOOTH_BAUD_RATE = 57600;
 const nativeBluetooth = window.AndroidBluetooth || null;
@@ -20,7 +20,8 @@ const ui = {
   turn90Status: $("turn90Status"), calibrateLeftButton: $("calibrateLeftButton"),
   calibrateRightButton: $("calibrateRightButton"), finishTurnCalibrationButton: $("finishTurnCalibrationButton"),
   turnCalibrationResult: $("turnCalibrationResult"), saveTurnCalibrationButton: $("saveTurnCalibrationButton"),
-  distanceValue: $("distanceValue"), routeValue: $("routeValue"), thresholdValue: $("thresholdValue"),
+  distanceValue: $("distanceValue"), obstacleStateValue: $("obstacleStateValue"), thresholdValue: $("thresholdValue"),
+  obstacleThresholdInput: $("obstacleThresholdInput"), applyObstacleThresholdButton: $("applyObstacleThresholdButton"),
   lineLeftTransValue: $("lineLeftTransValue"), lineLeftLongValue: $("lineLeftLongValue"),
   lineRightTransValue: $("lineRightTransValue"), lineRightLongValue: $("lineRightLongValue"),
   lineLeftTransBar: $("lineLeftTransBar"), lineLeftLongBar: $("lineLeftLongBar"),
@@ -28,8 +29,8 @@ const ui = {
   lineLeftTransMeta: $("lineLeftTransMeta"), lineLeftLongMeta: $("lineLeftLongMeta"),
   lineRightTransMeta: $("lineRightTransMeta"), lineRightLongMeta: $("lineRightLongMeta"),
   lineErrorValue: $("lineErrorValue"), trackStateValue: $("trackStateValue"),
-  trackRunValue: $("trackRunValue"), avoidanceValue: $("avoidanceValue"),
-  avoidanceStatus: $("avoidanceStatus"), trackStartButton: $("trackStartButton"),
+  trackRunValue: $("trackRunValue"), ultrasonicValue: $("ultrasonicValue"),
+  ultrasonicStatus: $("ultrasonicStatus"), trackStartButton: $("trackStartButton"),
   trackStopButton: $("trackStopButton"), trackPeakValue: $("trackPeakValue"),
   trackEndValue: $("trackEndValue"), trackPValue: $("trackPValue"), trackIValue: $("trackIValue"),
   trackDValue: $("trackDValue"), trackTrimValue: $("trackTrimValue"),
@@ -52,14 +53,15 @@ const ui = {
 
 const state = {
   connected: false, mode: "standby", motion: "stop", gear: "HIGH",
-  trackGear: "LOW", trackRunning: false, trackState: "LOST", avoidance: false,
+  trackGear: "LOW", trackRunning: false, trackState: "LOST",
+  ultrasonicEnabled: false, obstacleBlocked: false,
   lineCalibrated: false, lineCalibrating: false, firmwareCompatible: null, trackEnd: "NONE",
   pwmTestRunning: false
 };
 const telemetry = {
   leftCps: null, rightCps: null, targetLeft: null, targetRight: null,
   pwmLeft: null, pwmRight: null, error: null, trim: null, voltageMv: null,
-  distance: null, route: "NONE",
+  distance: null,
   lineLeftTrans: null, lineLeftLong: null, lineRightTrans: null, lineRightLong: null,
   lineLeftTransPct: null, lineLeftLongPct: null, lineRightTransPct: null, lineRightLongPct: null,
   lineErrorX100: null, lineTrim: null, trackBase: null, lineSequence: null, lineFramesDropped: 0,
@@ -222,7 +224,9 @@ function snapshot() {
     right_tracking_error_cps: Number.isFinite(telemetry.rightCps) && Number.isFinite(telemetry.targetRight) ? telemetry.rightCps - telemetry.targetRight : null,
     pwm_left: telemetry.pwmLeft, pwm_right: telemetry.pwmRight,
     straight_error: telemetry.error, straight_trim: telemetry.trim,
-    voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance, route: telemetry.route,
+    voltage_mv: telemetry.voltageMv, distance_cm: telemetry.distance,
+    ultrasonic_enabled: state.ultrasonicEnabled ? "ON" : "OFF",
+    obstacle_blocked: state.obstacleBlocked ? 1 : 0,
     line_left_trans: telemetry.lineLeftTrans, line_left_long: telemetry.lineLeftLong,
     line_right_trans: telemetry.lineRightTrans, line_right_long: telemetry.lineRightLong,
     line_left_trans_pct: telemetry.lineLeftTransPct, line_left_long_pct: telemetry.lineLeftLongPct,
@@ -242,7 +246,6 @@ function snapshot() {
     end_left_trans_pct: telemetry.trackEndPercent[0], end_left_long_pct: telemetry.trackEndPercent[1],
     end_right_trans_pct: telemetry.trackEndPercent[2], end_right_long_pct: telemetry.trackEndPercent[3],
     track_state: state.trackState, track_running: state.trackRunning,
-    avoidance: state.avoidance ? "ON" : "OFF",
     remote_speed_gear: state.gear, track_speed_gear: state.trackGear
   };
 }
@@ -491,7 +494,8 @@ function captureSensorHistory() {
     pwm_left_pct: telemetry.pwmLeft, pwm_right_pct: telemetry.pwmRight,
     left_tracking_error_cps: leftTrackingError, right_tracking_error_cps: rightTrackingError,
     line_frames_dropped: telemetry.lineFramesDropped,
-    avoidance: state.avoidance ? "ON" : "OFF", distance_cm: telemetry.distance, obstacle_route: telemetry.route,
+    ultrasonic_enabled: state.ultrasonicEnabled ? "ON" : "OFF",
+    obstacle_blocked: state.obstacleBlocked ? 1 : 0, distance_cm: telemetry.distance,
     track_end: state.trackEnd, track_end_ms: telemetry.trackEndMs
   });
   if (trackSessionActive && !state.trackRunning) {
@@ -531,7 +535,7 @@ function sensorSessionTable(separator) {
     ["左实际CPS", "actual_left_cps"], ["右实际CPS", "actual_right_cps"],
     ["左实际PWM%", "pwm_left_pct"], ["右实际PWM%", "pwm_right_pct"],
     ["左轮误差_实际减目标", "left_tracking_error_cps"], ["右轮误差_实际减目标", "right_tracking_error_cps"],
-    ["避障", "avoidance"], ["超声波cm", "distance_cm"], ["避障阶段", "obstacle_route"],
+    ["超声波检测", "ultrasonic_enabled"], ["障碍暂停", "obstacle_blocked"], ["超声波cm", "distance_cm"],
     ["结束原因", "track_end"], ["结束毫秒", "track_end_ms"]
   ];
   const encode = separator === "," ? csvCell : (value) => String(value ?? "").replace(/[\t\r\n]+/g, " ");
@@ -739,17 +743,25 @@ function setTrackState(trackState) {
 
 function setTrackRunning(running) {
   state.trackRunning = running;
-  ui.trackRunValue.textContent = running ? "循迹中" : "已停止";
+  updateTrackRunDisplay();
   updateAvailability();
 }
 
-function setAvoidance(enabled) {
-  state.avoidance = enabled;
-  ui.avoidanceValue.textContent = enabled ? "开启" : "关闭";
-  ui.avoidanceStatus.textContent = enabled ? "避障开启，测距运行" : "避障关闭，测距运行";
-  document.querySelectorAll(".avoid-choice").forEach((button) => {
-    button.classList.toggle("selected", button.dataset.avoid === (enabled ? "ON" : "OFF"));
+function updateTrackRunDisplay() {
+  ui.trackRunValue.textContent = state.trackRunning ?
+    (state.obstacleBlocked ? "障碍暂停" : "循迹中") : "已停止";
+}
+
+function setUltrasonicStatus(enabled, blocked = false) {
+  state.ultrasonicEnabled = enabled;
+  state.obstacleBlocked = enabled && blocked;
+  ui.ultrasonicValue.textContent = state.obstacleBlocked ? "已停车" : enabled ? "开启" : "关闭";
+  ui.ultrasonicStatus.textContent = state.obstacleBlocked ? "检测到障碍，巡线暂停" : enabled ? "正在测距" : "检测关闭";
+  ui.obstacleStateValue.textContent = state.obstacleBlocked ? "两轮暂停" : enabled ? "允许巡线" : "检测关闭";
+  document.querySelectorAll(".ultrasonic-choice").forEach((button) => {
+    button.classList.toggle("selected", button.dataset.ultrasonic === (enabled ? "ON" : "OFF"));
   });
+  updateTrackRunDisplay();
 }
 
 function setLineCalibrated(calibrated) {
@@ -842,7 +854,7 @@ function setMode(mode) {
   }
   if (mode !== "sensor") {
     setTrackRunning(false);
-    setAvoidance(false);
+    setUltrasonicStatus(false, false);
     setLineCalibrating(false);
     pendingTrackStartEvent = false;
     trackSessionActive = false;
@@ -922,7 +934,7 @@ function setConnected(connected) {
     ui.firmwareWarning.hidden = true;
     ui.firmwareWarning.textContent = "";
     setTrackRunning(false);
-    setAvoidance(false);
+    setUltrasonicStatus(false, false);
     setLineCalibrated(false);
     setLineCalibrating(false);
     joystickLastCommand = "";
@@ -1335,12 +1347,14 @@ function processLine(line) {
       return split > 0 ? [[token.slice(0, split).toUpperCase(), token.slice(split + 1)]] : [];
     }));
     telemetry.distance = fields.D === "OUT" ? null : numberField(fields, "D");
-    telemetry.route = (fields.ROUTE || "NONE").toUpperCase();
     ui.distanceValue.textContent = showDistance(telemetry.distance);
     ui.thresholdValue.textContent = fields.TH || "--";
-    const routeLabels = { NONE: "待机", LEFT: "向左绕", RIGHT: "向右绕", STRAIGHT: "绕行直行段" };
-    ui.routeValue.textContent = routeLabels[telemetry.route] || telemetry.route;
-    if (fields.AVOID === "ON" || fields.AVOID === "OFF") setAvoidance(fields.AVOID === "ON");
+    if (fields.TH && document.activeElement !== ui.obstacleThresholdInput) {
+      ui.obstacleThresholdInput.value = fields.TH;
+    }
+    if (fields.US === "ON" || fields.US === "OFF") {
+      setUltrasonicStatus(fields.US === "ON", fields.HIT === "1");
+    }
   }
 
   const sensorVoltage = line.match(/^SENSOR VBAT_MV=(\d+)/i);
@@ -1427,7 +1441,7 @@ function processLine(line) {
     updateAvailability();
     if (fields.CAL !== undefined) setLineCalibrated(fields.CAL === "1");
     if (fields.STATE) setTrackState(fields.STATE.toUpperCase());
-    if (fields.AVOID) setAvoidance(fields.AVOID === "ON");
+    if (fields.US) setUltrasonicStatus(fields.US === "ON", fields.HIT === "1");
     if (fields.END) state.trackEnd = fields.END.toUpperCase();
     if (state.trackEnd === "NONE") lastFailureSignature = "";
     telemetry.trackBase = numberField(fields, "BASE");
@@ -1798,7 +1812,7 @@ function exportCsv() {
   const mode = currentLogMode();
   const records = recordsForMode(mode);
   const remoteColumns = ["time", "elapsed_ms", "note", "motion", "remote_speed_gear", "left_cps", "right_cps", "target_left", "target_right", "pwm_left", "pwm_right", "straight_error", "straight_trim", "voltage_mv"];
-  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "avoidance", "distance_cm", "route", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "effective_kp", "target_left", "target_right", "left_cps", "right_cps", "pwm_left", "pwm_right", "left_tracking_error_cps", "right_tracking_error_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
+  const sensorColumns = ["time", "elapsed_ms", "note", "scene", "line_sequence", "line_frames_dropped", "track_running", "track_state", "track_speed_gear", "ultrasonic_enabled", "obstacle_blocked", "distance_cm", "line_calibrated", "track_base_cps", "line_error_x100", "track_p_cps", "track_i_cps", "track_d_cps", "line_trim_cps", "effective_kp", "target_left", "target_right", "left_cps", "right_cps", "pwm_left", "pwm_right", "left_tracking_error_cps", "right_tracking_error_cps", "line_left_trans", "line_left_long", "line_right_trans", "line_right_long", "line_left_trans_pct", "line_left_long_pct", "line_right_trans_pct", "line_right_long_pct", "track_end", "track_end_ms", "track_peak_error_x100", "track_peak_state", "track_peak_ms", "track_peak_p_cps", "track_peak_i_cps", "track_peak_d_cps", "track_peak_trim_cps", "peak_left_trans_pct", "peak_left_long_pct", "peak_right_trans_pct", "peak_right_long_pct", "end_left_trans_pct", "end_left_long_pct", "end_right_trans_pct", "end_right_long_pct"];
   const columns = mode === "sensor" ? sensorColumns : remoteColumns;
   const rows = [columns.join(",")];
   for (const record of records) {
@@ -1912,10 +1926,23 @@ ui.applyTrackHighSpeedButton.addEventListener("click", async () => {
   }
 });
 
-document.querySelectorAll(".avoid-choice").forEach((button) => {
+document.querySelectorAll(".ultrasonic-choice").forEach((button) => {
   button.addEventListener("click", async () => {
-    if (await sendCommand(`AVOID ${button.dataset.avoid}`)) setAvoidance(button.dataset.avoid === "ON");
+    if (await sendCommand(`ULTRA ${button.dataset.ultrasonic}`)) {
+      setUltrasonicStatus(button.dataset.ultrasonic === "ON", false);
+    }
   });
+});
+
+ui.applyObstacleThresholdButton.addEventListener("click", async () => {
+  const value = Number(ui.obstacleThresholdInput.value);
+  if (!Number.isInteger(value) || value < 2 || value > 400) {
+    setMessage("超声波触发距离请输入 2～400 cm 的整数", true);
+    return;
+  }
+  if (!(await sendCommand(`ULTRA TH ${value}`))) return;
+  ui.thresholdValue.textContent = String(value);
+  setMessage(`本次超声波触发距离已设为 ${value} cm`);
 });
 
 ui.joystickPad.addEventListener("pointerdown", (event) => {
@@ -2038,7 +2065,7 @@ drawJoystick(0, 0);
 setGear("HIGH");
 setTrackGear("LOW");
 setTrackState("LOST");
-setAvoidance(false);
+setUltrasonicStatus(false, false);
 setLineCalibrated(false);
 setLineCalibrating(false);
 updateTurn90Status();

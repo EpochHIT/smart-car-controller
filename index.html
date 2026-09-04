@@ -51,7 +51,7 @@
         <div class="track-state-hero">
           <div><small>直线状态</small><strong id="trackStateValue">待读取</strong></div>
           <div><small>运行</small><strong id="trackRunValue">已停止</strong></div>
-          <div><small>避障</small><strong id="avoidanceValue">关闭</strong></div>
+          <div><small>超声波</small><strong id="ultrasonicValue">关闭</strong></div>
         </div>
         <div class="button-grid two-buttons track-run-buttons">
           <button class="button primary sensor-only" id="trackStartButton" type="button" disabled>正在读取传感器…</button>
@@ -72,10 +72,10 @@
         </div>
         <p class="track-speed-hint" id="trackSpeedHint">低档 3900 · 中档 4100 · 高档 4300；停车时可修改高档。</p>
         <div class="gear-row">
-          <span>超声波避障</span>
-          <div class="gear-switch two" role="group" aria-label="超声波避障开关">
-            <button class="avoid-choice sensor-only selected" data-avoid="OFF" type="button" disabled>关闭</button>
-            <button class="avoid-choice sensor-only" data-avoid="ON" type="button" disabled>开启</button>
+          <span>超声波检测</span>
+          <div class="gear-switch two" role="group" aria-label="超声波检测开关">
+            <button class="ultrasonic-choice sensor-only selected" data-ultrasonic="OFF" type="button" disabled>关闭</button>
+            <button class="ultrasonic-choice sensor-only" data-ultrasonic="ON" type="button" disabled>开启</button>
           </div>
         </div>
       </section>
@@ -128,15 +128,20 @@
       </details>
 
       <details class="card fold-card obstacle-fold">
-        <summary>前向超声波 · <span id="avoidanceStatus">避障关闭，测距运行</span></summary>
+        <summary>前向超声波 · <span id="ultrasonicStatus">检测关闭</span></summary>
         <div class="sensor-hero">
           <div class="distance"><strong id="distanceValue">--</strong><span>cm</span></div>
           <div class="data-grid two">
             <div><small>触发距离</small><strong><span id="thresholdValue">--</span> cm</strong></div>
-            <div><small>固定绕行动作</small><strong id="routeValue">待机</strong></div>
+            <div><small>当前动作</small><strong id="obstacleStateValue">检测关闭</strong></div>
           </div>
         </div>
-        <p class="group-hint">进入巡线模式后会一直测前方距离，停车时也能读取；上方“开启”只决定遇障时是否执行写死的右侧绕行动作。</p>
+        <div class="track-speed-editor ultrasonic-threshold-editor">
+          <label for="obstacleThresholdInput">本次触发距离 cm</label>
+          <input class="sensor-only" id="obstacleThresholdInput" type="number" min="2" max="400" step="1" value="30" inputmode="numeric" disabled>
+          <button class="button primary sensor-only" id="applyObstacleThresholdButton" type="button" disabled>立即应用</button>
+        </div>
+        <p class="group-hint">开启后持续测距；距离小于等于阈值时暂停两轮，障碍物移开、调低阈值或关闭检测后自动继续巡线。</p>
       </details>
     </section>
 
@@ -220,9 +225,9 @@
         </details>
 
         <details class="parameter-group">
-          <summary>一次避障</summary>
+          <summary>超声波停车</summary>
           <div class="parameter-grid"><label>障碍触发距离 cm<input class="param-input requires-connection" data-param="OBS_CM" type="number" min="2" max="400" value="30" disabled></label></div>
-          <p class="group-hint">超声波只看正前方；绕行方向与各段时间暂时写在固件里，先完成一次稳定避障后再按实测调整。</p>
+          <p class="group-hint">这里保存下次进入巡线模式时使用的默认阈值；巡线页可随时修改本次阈值。</p>
         </details>
 
       </section>
