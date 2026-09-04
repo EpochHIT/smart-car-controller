@@ -7,14 +7,14 @@ const ADC_MAX = 4095;
 const HISTORY_LIMIT = 2000;
 const CHART_POINTS = 800;
 const HALL_EDGES_PER_OUTPUT_REV = 13 * 20.409 * 2;
-const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v7-measured-pd";
+const PROFILE_STORAGE_KEY = "mspm0-racer-gear-profiles-v8-g3-tuned";
 const DEFAULT_GEAR_PROFILES = [
   null,
   { target: 100, speedKp: 4, speedKi: 0, trackKp: 1.75, trackKd: 1.20 },
   { target: 90, speedKp: 4, speedKi: 0, trackKp: 1.58, trackKd: 1.20 },
-  { target: 80, speedKp: 4, speedKi: 0, trackKp: 1.40, trackKd: 1.20 },
-  { target: 70, speedKp: 4, speedKi: 0, trackKp: 1.23, trackKd: 1.20 },
-  { target: 60, speedKp: 4, speedKi: 0, trackKp: 0.55, trackKd: 3.00 },
+  { target: 80, speedKp: 4, speedKi: 0, trackKp: 0.85, trackKd: 3.50 },
+  { target: 70, speedKp: 4, speedKi: 0, trackKp: 0.60, trackKd: 2.00 },
+  { target: 60, speedKp: 4, speedKi: 0, trackKp: 0.55, trackKd: 2.00 },
   { target: 50, speedKp: 4, speedKi: 0, trackKp: 0.55, trackKd: 1.20 },
   { target: 40, speedKp: 4, speedKi: 0, trackKp: 0.70, trackKd: 1.20 }
 ];
